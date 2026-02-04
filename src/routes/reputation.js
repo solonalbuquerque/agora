@@ -9,6 +9,7 @@ const servicesDb = require('../db/services');
 async function reputationRoutes(fastify) {
   fastify.get('/agents/:id', {
     schema: {
+      tags: ['Reputation'],
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       response: {
         200: {
@@ -39,6 +40,7 @@ async function reputationRoutes(fastify) {
 
   fastify.get('/services/:id', {
     schema: {
+      tags: ['Reputation'],
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       response: {
         200: {

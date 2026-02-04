@@ -2,7 +2,7 @@
 
 const servicesDb = require('../db/services');
 const { created, success, list } = require('../lib/responses');
-const { badRequest, notFound } = require('../lib/errors');
+const { badRequest, notFound, forbidden } = require('../lib/errors');
 
 async function servicesRoutes(fastify, opts) {
   const requireAuth = opts.requireAgentAuth;
@@ -13,6 +13,7 @@ async function servicesRoutes(fastify, opts) {
   fastify.post('/', {
     preHandler: requireAuth,
     schema: {
+      tags: ['Services'],
       description: 'Register a new service (capability) owned by the authenticated agent.',
       body: {
         type: 'object',
@@ -23,7 +24,8 @@ async function servicesRoutes(fastify, opts) {
           webhook_url: { type: 'string', format: 'uri' },
           input_schema: { type: 'object' },
           output_schema: { type: 'object' },
-          price_cents_usd: { type: 'integer', minimum: 0 },
+          price_cents: { type: 'integer', minimum: 0 },
+          coin: { type: 'string', maxLength: 16 },
         },
       },
       response: {
@@ -31,7 +33,22 @@ async function servicesRoutes(fastify, opts) {
           type: 'object',
           properties: {
             ok: { type: 'boolean' },
-            data: { type: 'object' },
+            data: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                owner_agent_id: { type: 'string', format: 'uuid' },
+                name: { type: 'string' },
+                description: { type: 'string', nullable: true },
+                webhook_url: { type: 'string', format: 'uri' },
+                input_schema: { type: 'object', nullable: true },
+                output_schema: { type: 'object', nullable: true },
+                price_cents: { type: 'integer' },
+                coin: { type: 'string' },
+                status: { type: 'string' },
+                created_at: { type: 'string', format: 'date-time' },
+              },
+            },
           },
         },
       },
@@ -49,19 +66,23 @@ async function servicesRoutes(fastify, opts) {
       webhook_url: body.webhook_url,
       input_schema: body.input_schema,
       output_schema: body.output_schema,
-      price_cents_usd: body.price_cents_usd || 0,
+      price_cents: body.price_cents ?? 0,
+      coin: body.coin || 'AGOTEST',
     });
     return created(reply, service);
   });
 
   fastify.get('/', {
     schema: {
-      description: 'List services, optionally filtered by status and owner.',
+      tags: ['Services'],
+      description: 'List services. Default shows only active; use status to include paused/removed. Filters: owner, coin, text search (name, description, input_schema).',
       querystring: {
         type: 'object',
         properties: {
           status: { type: 'string' },
           owner_agent_id: { type: 'string', format: 'uuid' },
+          coin: { type: 'string', maxLength: 16, description: 'Filter by coin (e.g. AGOTEST)' },
+          q: { type: 'string', description: 'Search in name, description and input_schema (case-insensitive contains)' },
         },
       },
       response: {
@@ -79,21 +100,113 @@ async function servicesRoutes(fastify, opts) {
     const filters = {};
     if (request.query?.status) filters.status = request.query.status;
     if (request.query?.owner_agent_id) filters.owner_agent_id = request.query.owner_agent_id;
+    if (request.query?.coin) filters.coin = (request.query.coin || '').toString().slice(0, 16).toUpperCase();
+    if (request.query?.q != null && request.query.q !== '') filters.q = request.query.q;
     const rows = await servicesDb.list(filters);
     return list(reply, rows, { total: rows.length });
   });
 
   fastify.get('/:id', {
     schema: {
+      tags: ['Services'],
       params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
       response: {
-        200: { type: 'object', properties: { ok: { type: 'boolean' }, data: { type: 'object' } } },
+        200: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                owner_agent_id: { type: 'string', format: 'uuid' },
+                name: { type: 'string' },
+                description: { type: 'string', nullable: true },
+                webhook_url: { type: 'string', format: 'uri' },
+                input_schema: { type: 'object', nullable: true },
+                output_schema: { type: 'object', nullable: true },
+                price_cents: { type: 'integer' },
+                coin: { type: 'string' },
+                status: { type: 'string' },
+                created_at: { type: 'string', format: 'date-time' },
+              },
+            },
+          },
+        },
       },
     },
   }, async (request, reply) => {
     const service = await servicesDb.getById(request.params.id);
     if (!service) return notFound(reply, 'Service not found');
     return success(reply, service);
+  });
+
+  const serviceDataSchema = {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      owner_agent_id: { type: 'string', format: 'uuid' },
+      name: { type: 'string' },
+      description: { type: 'string', nullable: true },
+      webhook_url: { type: 'string', format: 'uri' },
+      input_schema: { type: 'object', nullable: true },
+      output_schema: { type: 'object', nullable: true },
+      price_cents: { type: 'integer' },
+      coin: { type: 'string' },
+      status: { type: 'string', enum: ['active', 'paused', 'removed'] },
+      created_at: { type: 'string', format: 'date-time' },
+    },
+  };
+
+  fastify.put('/:id', {
+    preHandler: requireAuth,
+    schema: {
+      tags: ['Services'],
+      description: 'Update a service. Only the owner can update. Set status to paused or removed to inactivate (inactive services do not appear in default list).',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          description: { type: 'string' },
+          webhook_url: { type: 'string', format: 'uri' },
+          input_schema: { type: 'object' },
+          output_schema: { type: 'object' },
+          price_cents: { type: 'integer', minimum: 0 },
+          coin: { type: 'string', maxLength: 16 },
+          status: { type: 'string', enum: ['active', 'paused', 'removed'], description: 'paused or removed = inactive, not listed by default' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            data: serviceDataSchema,
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const agentId = request.agentId;
+    const { id } = request.params;
+    const service = await servicesDb.getById(id);
+    if (!service) return notFound(reply, 'Service not found');
+    if (service.owner_agent_id !== agentId) {
+      return forbidden(reply, 'Only the owner can update this service');
+    }
+    const body = request.body || {};
+    const updated = await servicesDb.update(id, {
+      name: body.name,
+      description: body.description,
+      webhook_url: body.webhook_url,
+      input_schema: body.input_schema,
+      output_schema: body.output_schema,
+      price_cents: body.price_cents,
+      coin: body.coin,
+      status: body.status,
+    });
+    return success(reply, updated);
   });
 }
 

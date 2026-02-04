@@ -11,11 +11,15 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "migrate": "node scripts/migrate.js",
+    "migrate:start": "node scripts/migrate.js && node src/server.js",
+    "migrate:dev": "node scripts/migrate.js && nodemon src/server.js",
     "seed": "node scripts/seed.js",
     "sign-request": "node scripts/sign-request.js",
+    "sign-issuer-request": "node scripts/sign-issuer-request.js",
     "docker:down": "docker compose down",
     "docker:reset": "docker compose down -v",
-    "docker:up": "docker compose up -d --build"
+    "docker:up": "docker compose up -d --build",
+    "docker:reload": "docker compose run --rm api node scripts/migrate.js && docker compose up -d --build"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

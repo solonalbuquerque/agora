@@ -42,13 +42,13 @@ Run migrations to create tables and views:
 npm run migrate
 ```
 
-This executes SQL files in `migrations/` in order (001_agents.sql through 005_reputation_views.sql).
+This executes SQL files in `migrations/` in order (001_agents.sql through 013_executions_awaiting_callback.sql).
 
 ---
 
 ## 3. Seed data (optional)
 
-Seed the default coin (USD) and optionally test agents with initial balance:
+Seed the default coin (AGOTEST) and optionally test agents with initial balance:
 
 ```bash
 npm run seed

@@ -19,8 +19,22 @@ fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, bo
     done(err, undefined);
   }
 });
+fastify.addContentTypeParser('text/plain', { parseAs: 'string' }, (req, body, done) => {
+  done(null, body || '');
+});
 
 fastify.register(cors, { origin: true });
+
+// Disable caching for docs (Swagger UI and spec) so updates show after server restart
+fastify.addHook('onRequest', (request, reply, done) => {
+  const url = request.url.split('?')[0];
+  if (url === '/swagger.json' || url.startsWith('/docs')) {
+    reply.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    reply.header('Pragma', 'no-cache');
+    reply.header('Expires', '0');
+  }
+  done();
+});
 
 fastify.register(swagger, {
   openapi: {
@@ -31,6 +45,19 @@ fastify.register(swagger, {
       version: '1.0.0',
     },
     servers: [{ url: `http://localhost:${config.port}`, description: 'Local' }],
+    tags: [
+      { name: 'Health', description: 'Health check and documentation' },
+      { name: 'Agents', description: 'Agent identity (register, me). HMAC auth on protected routes.' },
+      { name: 'Wallet', description: 'Balance and transfers. Requires HMAC auth (X-Agent-Id, X-Timestamp, X-Signature).' },
+      { name: 'Services', description: 'Service registry (capabilities). HMAC auth to create.' },
+      { name: 'Executions', description: 'Execute services (debit, webhook, credit). HMAC auth.' },
+      { name: 'Reputation', description: 'Reputation metrics per agent and per service.' },
+      { name: 'Human', description: 'Human identity (email), verification, link to agents. JWT for /me and link flow.' },
+      { name: 'Admin', description: 'Mint and issuer management. Requires X-Admin-Token header.' },
+      { name: 'Faucet', description: 'Self-host faucet. Only active when ENABLE_FAUCET=true.' },
+      { name: 'Issuer', description: 'Issuer-signed credit. Headers X-Issuer-Id, X-Issuer-Timestamp, X-Issuer-Signature.' },
+      { name: 'Instance', description: 'Instance registration and activation. Status with X-Instance-Token or X-Admin-Token.' },
+    ],
   },
 });
 

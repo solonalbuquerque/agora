@@ -12,11 +12,15 @@ const requireAuth = requireAgentAuth(getAgentSecret);
 
 async function routes(fastify) {
   fastify.get('/swagger.json', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    reply.header('Pragma', 'no-cache');
+    reply.header('Expires', '0');
     return reply.send(await fastify.swagger());
   });
 
   fastify.get('/health', {
     schema: {
+      tags: ['Health'],
       description: 'Health check for load balancers and Docker.',
       response: {
         200: {
@@ -43,6 +47,11 @@ async function routes(fastify) {
   fastify.register(require('./services'), { prefix: '/services', requireAgentAuth: requireAuth });
   fastify.register(require('./executions'), { prefix: '', requireAgentAuth: requireAuth });
   fastify.register(require('./reputation'), { prefix: '/reputation' });
+  fastify.register(require('./human'), { prefix: '/human' });
+  fastify.register(require('./admin'), { prefix: '/admin' });
+  fastify.register(require('./faucet'), { prefix: '' });
+  fastify.register(require('./issuer'), { prefix: '/issuer' });
+  fastify.register(require('./instance'), { prefix: '/instance' });
 }
 
 module.exports = routes;

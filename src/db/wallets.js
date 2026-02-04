@@ -24,15 +24,38 @@ async function ensureWallet(client, agentId, coin) {
 }
 
 /**
- * Insert a ledger entry. If client is provided, use it (transaction); otherwise use pool.
+ * Ensure coin exists in wallets_coins (for admin/issuer mint). Call before credit if coin may be new.
+ * client: optional; if provided, runs in same transaction.
  */
-async function insertLedgerEntry(client, agentId, coin, type, amountCents, metadata = null) {
-  const q = `INSERT INTO ledger_entries (uuid, agent_id, coin, type, amount_cents, metadata)
-             VALUES ($1, $2, $3, $4, $5, $6)
+async function ensureCoin(client, coin) {
+  const sql = `INSERT INTO wallets_coins (coin, name, qtd_cents) VALUES ($1, $2, 0) ON CONFLICT (coin) DO NOTHING`;
+  if (client) {
+    await client.query(sql, [coin, coin]);
+  } else {
+    await query(sql, [coin, coin]);
+  }
+}
+
+/**
+ * Insert a ledger entry. If client is provided, use it (transaction); otherwise use pool.
+ * externalRef: optional; when set, idempotency is enforced (unique coin+external_ref).
+ */
+async function insertLedgerEntry(client, agentId, coin, type, amountCents, metadata = null, externalRef = null) {
+  const q = `INSERT INTO ledger_entries (uuid, agent_id, coin, type, amount_cents, metadata, external_ref)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id`;
-  const params = [uuidv4(), agentId, coin, type, amountCents, metadata ? JSON.stringify(metadata) : null];
+  const params = [uuidv4(), agentId, coin, type, amountCents, metadata ? JSON.stringify(metadata) : null, externalRef || null];
   const res = await (client ? client.query(q, params) : query(q, params));
   return res.rows[0].id;
+}
+
+/**
+ * Check if a ledger entry already exists for (coin, external_ref). For idempotent mint/issuer credit.
+ */
+async function existsLedgerByExternalRef(client, coin, externalRef) {
+  const q = 'SELECT 1 FROM ledger_entries WHERE coin = $1 AND external_ref = $2 LIMIT 1';
+  const res = await (client ? client.query(q, [coin, externalRef]) : query(q, [coin, externalRef]));
+  return res.rows.length > 0;
 }
 
 /**
@@ -103,11 +126,61 @@ async function credit(client, agentId, coin, amountCents, metadata = null) {
   await insertLedgerEntry(client, agentId, coin, 'credit', amountCents, metadata);
 }
 
+/**
+ * List ledger entries (statement) for an agent/coin with optional filters.
+ * filters: { type, from_date, to_date, limit, offset }
+ * - type: 'credit' | 'debit' (opcional)
+ * - from_date, to_date: YYYY-MM-DD (inclusive)
+ * Returns { rows, total }.
+ */
+async function getStatement(agentId, coin, filters = {}) {
+  const { type, from_date, to_date, limit = 20, offset = 0 } = filters;
+  const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
+
+  let where = 'agent_id = $1 AND coin = $2';
+  const params = [agentId, coin];
+  let i = 3;
+  if (type) {
+    params.push(type);
+    where += ` AND type = $${i++}`;
+  }
+  if (from_date) {
+    params.push(from_date);
+    where += ` AND created_at >= $${i}::date`;
+    i += 1;
+  }
+  if (to_date) {
+    params.push(to_date);
+    where += ` AND created_at < ($${i}::date + interval '1 day')`;
+    i += 1;
+  }
+
+  const countRes = await query(
+    `SELECT COUNT(*)::int AS total FROM ledger_entries WHERE ${where}`,
+    params
+  );
+  const total = countRes.rows[0]?.total ?? 0;
+
+  params.push(safeLimit, safeOffset);
+  const res = await query(
+    `SELECT id, uuid, type, amount_cents, metadata, created_at
+     FROM ledger_entries WHERE ${where}
+     ORDER BY created_at DESC
+     LIMIT $${i} OFFSET $${i + 1}`,
+    params
+  );
+  return { rows: res.rows, total };
+}
+
 module.exports = {
   getBalance,
   ensureWallet,
+  ensureCoin,
   insertLedgerEntry,
+  existsLedgerByExternalRef,
   transfer,
   debit,
   credit,
+  getStatement,
 };

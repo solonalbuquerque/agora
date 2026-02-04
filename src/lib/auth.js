@@ -21,7 +21,7 @@ function sha256Hex(str) {
 }
 
 /**
- * Compute HMAC-SHA256 signature (hex) of the signing payload using the agent secret.
+ * Compute HMAC-SHA256 signature (hex) of the signing payload (used for agent and issuer).
  */
 function sign(secret, payload) {
   return crypto.createHmac('sha256', secret).update(payload, 'utf8').digest('hex');

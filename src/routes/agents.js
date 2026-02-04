@@ -9,6 +9,7 @@ async function agentsRoutes(fastify, opts) {
 
   fastify.post('/register', {
     schema: {
+      tags: ['Agents'],
       description: 'Create a new pseudonymous agent. The secret is returned only once; store it securely.',
       body: {
         type: 'object',
@@ -46,6 +47,7 @@ async function agentsRoutes(fastify, opts) {
   fastify.get('/me', {
     preHandler: requireAuth,
     schema: {
+      tags: ['Agents'],
       description: 'Return the authenticated agent data (no secret).',
       response: {
         200: {

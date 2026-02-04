@@ -18,8 +18,11 @@ function agentId() {
   return uuidv4();
 }
 
+/**
+ * Service ID: standard UUID v4 (same format as agent IDs).
+ */
 function serviceId() {
-  return prefixedId('ser');
+  return uuidv4();
 }
 
 module.exports = {

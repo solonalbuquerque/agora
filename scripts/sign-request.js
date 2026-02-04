@@ -2,17 +2,18 @@
 'use strict';
 
 /**
- * Gera os headers HMAC para uma requisição (Swagger, curl, etc.).
- * Uso: node scripts/sign-request.js <agentId> <secret> <METHOD> <path> [body]
- * Body opcional; se omitido, bodyHash fica vazio. Para POST com JSON, passe o body exatamente como será enviado.
+ * Generate HMAC headers for a request (Swagger, curl, etc.).
+ * Usage: node scripts/sign-request.js <agentId> <secret> <METHOD> <path> [body]
+ * Body optional; if omitted, bodyHash is empty. For POST with JSON, pass the body exactly as it will be sent.
+ * Protocol: "path" = canonical path ONLY (no query string). Script strips ? and beyond automatically.
  *
- * Exemplo (GET):
- *   node scripts/sign-request.js aga5142e98f44e1e919503f77376a22e SEU_SECRET GET /wallet/balance
+ * Example (GET):
+ *   node scripts/sign-request.js <agentId> <secret> GET /wallet/AGOTEST/balance
  *
- * Exemplo (POST com body):
- *   node scripts/sign-request.js aga51... SEU_SECRET POST /wallet/transfer '{"to_agent_id":"ag...","coin":"USD","amount_cents":100}'
+ * Example (POST with body):
+ *   node scripts/sign-request.js <agentId> <secret> POST /wallet/AGOTEST/transfer '{"to_agent":"ag...","amount":100}'
  *
- * Saída: X-Agent-Id, X-Timestamp, X-Signature para colar no Swagger ou usar no curl.
+ * Output: X-Agent-Id, X-Timestamp, X-Signature to paste in Swagger or use in curl.
  */
 
 const { buildSigningPayload, sha256Hex, sign } = require('../src/lib/auth');
@@ -20,8 +21,8 @@ const { buildSigningPayload, sha256Hex, sign } = require('../src/lib/auth');
 function main() {
   const args = process.argv.slice(2);
   if (args.length < 4) {
-    console.error('Uso: node scripts/sign-request.js <agentId> <secret> <METHOD> <path> [body]');
-    console.error('Exemplo: node scripts/sign-request.js aga51... SEU_SECRET GET /wallet/balance');
+    console.error('Usage: node scripts/sign-request.js <agentId> <secret> <METHOD> <path> [body]');
+    console.error('Example: node scripts/sign-request.js <agentId> <secret> GET /wallet/AGOTEST/balance');
     process.exit(1);
   }
 
@@ -36,11 +37,11 @@ function main() {
   const payload = buildSigningPayload(agentId, timestamp, method.toUpperCase(), pathOnly, bodyHash);
   const signature = sign(secret, payload);
 
-  console.log('Adicione estes headers na requisição (ex.: no Swagger em Headers ou Authorize):\n');
+  console.log('Add these headers to your request (e.g. in Swagger under Headers or Authorize):\n');
   console.log('X-Agent-Id:', agentId);
   console.log('X-Timestamp:', timestamp);
   console.log('X-Signature:', signature);
-  console.log('\n(Copie e cole cada valor no campo correspondente no /docs. O timestamp vale por ~5 minutos.)');
+  console.log('\n(Copy each value to the corresponding field in /docs. Timestamp is valid for ~5 minutes.)');
 }
 
 main();

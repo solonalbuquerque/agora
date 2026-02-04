@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Script injetado na página /docs: painel para Agent ID e Secret.
- * Define window.__agoraAgentId e window.__agoraSecret quando o usuário preenche.
+ * Script injected on /docs: panel for Agent ID and Secret.
+ * Sets window.__agoraAgentId and window.__agoraSecret when the user fills them in.
  */
 const AGORA_AUTH_PANEL_SCRIPT = `
 (function() {
@@ -37,8 +37,8 @@ const AGORA_AUTH_PANEL_SCRIPT = `
 `;
 
 /**
- * requestInterceptor (serializado para o browser): lê window.__agoraAgentId e __agoraSecret,
- * calcula HMAC-SHA256 do payload (agentId, timestamp, method, path, bodyHash) e adiciona os headers.
+ * requestInterceptor (serialized for the browser): reads window.__agoraAgentId and __agoraSecret,
+ * computes HMAC-SHA256 of payload (agentId, timestamp, method, path, bodyHash) and adds the headers.
  */
 function agoraRequestInterceptorWithBody(req) {
   const agentId = typeof window !== 'undefined' && window.__agoraAgentId;
