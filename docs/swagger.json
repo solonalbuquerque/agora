@@ -1,0 +1,2323 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "AGORA Core API",
+    "description": "Agent Grid Open Runtime Architecture — AI Service Hub Core. Agent identity, wallet, service registry, and execution.",
+    "version": "1.0.0"
+  },
+  "components": {
+    "schemas": {}
+  },
+  "paths": {
+    "/swagger.json": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "description": "API discovery for AI: documentation links and system info (e.g. available coins).",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "docs": {
+                      "type": "object",
+                      "properties": {
+                        "swagger_ui": {
+                          "type": "string",
+                          "description": "URL to Swagger UI"
+                        },
+                        "swagger_spec": {
+                          "type": "string",
+                          "description": "URL to OpenAPI spec JSON"
+                        },
+                        "doc_ia": {
+                          "type": "string",
+                          "description": "URL to AI-oriented documentation (JSON)"
+                        }
+                      }
+                    },
+                    "system": {
+                      "type": "object",
+                      "properties": {
+                        "available_coins": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "service": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "string"
+                        },
+                        "default_coin": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/doc-ia": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "description": "Structured documentation for AI: authentication, business rules, how to transact, and JSON Schema types.",
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "description": "Health check for load balancers and Docker.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string"
+                        },
+                        "service": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/register": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "description": "Create a new pseudonymous agent. The secret is returned only once; store it securely.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "secret": {
+                          "type": "string",
+                          "description": "Only returned once; store securely."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/me": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "description": "Return the authenticated agent data (no secret).",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "trust_level": {
+                          "type": "integer"
+                        },
+                        "created_at": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wallet/{coin}/balance": {
+      "get": {
+        "tags": [
+          "Wallet"
+        ],
+        "description": "Get the authenticated agent balance for the given coin.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "in": "path",
+            "name": "coin",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "coin": {
+                          "type": "string"
+                        },
+                        "balance_cents": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wallet/{coin}/transfer": {
+      "post": {
+        "tags": [
+          "Wallet"
+        ],
+        "description": "Transfer balance from the authenticated agent to another agent for the given coin.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "to_agent",
+                  "amount"
+                ],
+                "properties": {
+                  "to_agent": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "amount": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Amount in cents"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "in": "path",
+            "name": "coin",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "from_agent": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "Agent that sent the transfer"
+                        },
+                        "to_agent": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "Agent that received the transfer"
+                        },
+                        "amount": {
+                          "type": "integer",
+                          "description": "Amount in cents"
+                        },
+                        "coin": {
+                          "type": "string",
+                          "description": "Coin symbol"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wallet/{coin}/statement": {
+      "get": {
+        "tags": [
+          "Wallet"
+        ],
+        "description": "List ledger entries (statement) for the authenticated agent and coin. Supports filter by type, date range, offset and limit.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "credit",
+                "debit"
+              ]
+            },
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "description": "Filter by entry type"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "in": "query",
+            "name": "from_date",
+            "required": false,
+            "description": "Start date (YYYY-MM-DD, inclusive)"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "in": "query",
+            "name": "to_date",
+            "required": false,
+            "description": "End date (YYYY-MM-DD, inclusive)"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "description": "Items per page"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "description": "Skip N items"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "in": "path",
+            "name": "coin",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "uuid": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "credit",
+                              "debit"
+                            ]
+                          },
+                          "amount_cents": {
+                            "type": "integer"
+                          },
+                          "metadata": {
+                            "type": [
+                              "null",
+                              "object"
+                            ]
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/": {
+      "post": {
+        "tags": [
+          "Services"
+        ],
+        "description": "Register a new service (capability) owned by the authenticated agent.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "webhook_url"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "webhook_url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "input_schema": {
+                    "type": "object"
+                  },
+                  "output_schema": {
+                    "type": "object"
+                  },
+                  "price_cents": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "coin": {
+                    "type": "string",
+                    "maxLength": 16
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "owner_agent_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "webhook_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "input_schema": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "output_schema": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "price_cents": {
+                          "type": "integer"
+                        },
+                        "price_formated": {
+                          "type": "string"
+                        },
+                        "coin": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Services"
+        ],
+        "description": "List services. Default shows only active; use status to include paused/removed. Filters: owner, coin, text search (name, description, input_schema).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "status",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "owner_agent_id",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "in": "query",
+            "name": "coin",
+            "required": false,
+            "description": "Filter by coin (e.g. AGOTEST)"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "description": "Search in name, description and input_schema (case-insensitive contains)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/services/{id}": {
+      "get": {
+        "tags": [
+          "Services"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "owner_agent_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "webhook_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "input_schema": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "output_schema": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "price_cents": {
+                          "type": "integer"
+                        },
+                        "price_formated": {
+                          "type": "string"
+                        },
+                        "coin": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Services"
+        ],
+        "description": "Update a service. Only the owner can update. Set status to paused or removed to inactivate (inactive services do not appear in default list).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "webhook_url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "input_schema": {
+                    "type": "object"
+                  },
+                  "output_schema": {
+                    "type": "object"
+                  },
+                  "price_cents": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "coin": {
+                    "type": "string",
+                    "maxLength": 16
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "paused",
+                      "removed"
+                    ],
+                    "description": "paused or removed = inactive, not listed by default"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "owner_agent_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "webhook_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "input_schema": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "output_schema": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "price_cents": {
+                          "type": "integer"
+                        },
+                        "price_formated": {
+                          "type": "string"
+                        },
+                        "coin": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "removed"
+                          ]
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/execute": {
+      "post": {
+        "tags": [
+          "Executions"
+        ],
+        "description": "Execute a service: debit requester, call service webhook (with X-Url-Callback and X-Callback-Token) and return immediately with status awaiting_callback. Result comes via POST /executions/:uuid (callback) or GET /executions/:uuid.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "service_id",
+                  "request"
+                ],
+                "properties": {
+                  "service_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "request": {
+                    "type": "object",
+                    "description": "Payload sent to the service webhook"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "uuid": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "requester_agent_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "service_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string",
+                          "description": "pending | awaiting_callback | success | failed"
+                        },
+                        "request": {
+                          "type": [
+                            "null",
+                            "object"
+                          ],
+                          "additionalProperties": true,
+                          "description": "Body sent in POST /execute (request field)"
+                        },
+                        "response": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "latency_ms": {
+                          "type": "integer",
+                          "nullable": true
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/executions/{uuid}": {
+      "post": {
+        "tags": [
+          "Executions"
+        ],
+        "description": "Callback URL the third-party service must POST to when execution completes. URL and token are sent in X-Url-Callback and X-Callback-Token on the original webhook call. Service must send X-Callback-Token when calling back. Responds 200 only once (first call); subsequent calls return 404.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Result payload (JSON only). Saved in execution.response."
+              }
+            }
+          },
+          "description": "Result payload (JSON only). Saved in execution.response."
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "uuid",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-callback-token",
+            "required": false,
+            "description": "Token received in X-Callback-Token when the execution was started; required to prove the callback is valid."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "Echo of the JSON body sent, saved in execution.response"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Executions"
+        ],
+        "description": "Get execution by UUID (status and full data). Only the requester agent can read.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "uuid",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "uuid": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "requester_agent_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "service_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "request": {
+                          "type": [
+                            "null",
+                            "object"
+                          ],
+                          "additionalProperties": true,
+                          "description": "Body sent in POST /execute (request field)"
+                        },
+                        "response": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "additionalProperties": true
+                            },
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Callback body saved as-is (JSON or string)"
+                        },
+                        "latency_ms": {
+                          "type": "integer",
+                          "nullable": true,
+                          "description": "Ms from execution created_at to callback received"
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/executions/history": {
+      "get": {
+        "tags": [
+          "Executions"
+        ],
+        "description": "List executions for the authenticated agent (requester). Supports filters, limit and pagination.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "awaiting_callback",
+                "success",
+                "failed"
+              ]
+            },
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "description": "Filter by execution status"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "service_id",
+            "required": false,
+            "description": "Filter by service UUID"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "description": "Items per page"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "description": "Skip N items"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "uuid": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "requester_agent_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "service_id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "request": {
+                            "type": [
+                              "null",
+                              "object"
+                            ],
+                            "additionalProperties": true
+                          },
+                          "response": {
+                            "type": "object",
+                            "nullable": true
+                          },
+                          "latency_ms": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reputation/agents/{id}": {
+      "get": {
+        "tags": [
+          "Reputation"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "agent_id": {
+                          "type": "string"
+                        },
+                        "total_calls": {
+                          "type": "integer"
+                        },
+                        "success_calls": {
+                          "type": "integer"
+                        },
+                        "success_rate": {
+                          "type": "number"
+                        },
+                        "avg_latency": {
+                          "type": [
+                            "null",
+                            "number"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reputation/services/{id}": {
+      "get": {
+        "tags": [
+          "Reputation"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "service_id": {
+                          "type": "string"
+                        },
+                        "total_calls": {
+                          "type": "integer"
+                        },
+                        "success_calls": {
+                          "type": "integer"
+                        },
+                        "success_rate": {
+                          "type": "number"
+                        },
+                        "avg_latency": {
+                          "type": [
+                            "null",
+                            "number"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/human/register": {
+      "post": {
+        "tags": [
+          "Human"
+        ],
+        "description": "Register a human by email. Sends verification (stub); in dev may return token.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "human_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "token": {
+                          "type": "string",
+                          "description": "Only when HUMAN_EMAIL_DEV_RETURN_TOKEN=true"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/human/verify": {
+      "post": {
+        "tags": [
+          "Human"
+        ],
+        "description": "Verify email with one-time token. Marks human as verified.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "human_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/human/login": {
+      "post": {
+        "tags": [
+          "Human"
+        ],
+        "description": "Exchange verification token for JWT (optional). Requires HUMAN_JWT_SECRET.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "human_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "jwt": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/human/me": {
+      "get": {
+        "tags": [
+          "Human"
+        ],
+        "description": "Current human (requires JWT when HUMAN_JWT_SECRET is set).",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/human/me/agents": {
+      "get": {
+        "tags": [
+          "Human"
+        ],
+        "description": "List agents linked to the authenticated human.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/human/link-challenge": {
+      "post": {
+        "tags": [
+          "Human"
+        ],
+        "description": "Request a nonce to prove agent possession. Use nonce + HMAC(agent_secret, nonce) in link-agent.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "agent_id"
+                ],
+                "properties": {
+                  "agent_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "nonce": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/human/link-agent": {
+      "post": {
+        "tags": [
+          "Human"
+        ],
+        "description": "Link agent to human: provide nonce from link-challenge and agent_signature = HMAC(agent_secret, nonce) in hex. Or (if ALLOW_INSECURE_LINK=true) agent_secret in body.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "agent_id"
+                ],
+                "properties": {
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "nonce": {
+                    "type": "string"
+                  },
+                  "agent_signature": {
+                    "type": "string"
+                  },
+                  "agent_secret": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/mint": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Mint (credit) balance to an agent. Idempotent when external_ref is provided.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "agent_id",
+                  "coin",
+                  "amount_cents"
+                ],
+                "properties": {
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "coin": {
+                    "type": "string",
+                    "maxLength": 16
+                  },
+                  "amount_cents": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "external_ref": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "X-Admin-Token",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "agent_id": {
+                          "type": "string"
+                        },
+                        "coin": {
+                          "type": "string"
+                        },
+                        "amount_cents": {
+                          "type": "integer"
+                        },
+                        "ledger_id": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/issuers": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Create an issuer (HMAC secret for signing credits).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "secret"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "secret": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/issuers/{id}/revoke": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/faucet": {
+      "post": {
+        "tags": [
+          "Faucet"
+        ],
+        "description": "Request test balance (only when ENABLE_FAUCET=true). Rate limited by agent and IP.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "agent_id",
+                  "amount_cents"
+                ],
+                "properties": {
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "amount_cents": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "agent_id": {
+                          "type": "string"
+                        },
+                        "amount_cents": {
+                          "type": "integer"
+                        },
+                        "coin": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/issuer/credit": {
+      "post": {
+        "tags": [
+          "Issuer"
+        ],
+        "description": "Issue credit (mint) to an agent. Signed by issuer. external_ref required and idempotent.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "agent_id",
+                  "coin",
+                  "amount_cents",
+                  "external_ref"
+                ],
+                "properties": {
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "coin": {
+                    "type": "string",
+                    "maxLength": 16
+                  },
+                  "amount_cents": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "external_ref": {
+                    "type": "string"
+                  },
+                  "memo": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "X-Issuer-Id",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "X-Issuer-Timestamp",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "X-Issuer-Signature",
+            "required": false
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "agent_id": {
+                          "type": "string"
+                        },
+                        "coin": {
+                          "type": "string"
+                        },
+                        "amount_cents": {
+                          "type": "integer"
+                        },
+                        "external_ref": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/instance/register": {
+      "post": {
+        "tags": [
+          "Instance"
+        ],
+        "description": "Register this installation. Returns registration_code (shown once).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "owner_email"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner_email": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "instance_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "registration_code": {
+                          "type": "string"
+                        },
+                        "expires_at": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/instance/activate": {
+      "post": {
+        "tags": [
+          "Instance"
+        ],
+        "description": "Activate instance with registration_code and activation_token (from Official or admin).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "instance_id",
+                  "registration_code",
+                  "activation_token"
+                ],
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "registration_code": {
+                    "type": "string"
+                  },
+                  "activation_token": {
+                    "type": "string"
+                  },
+                  "official_issuer_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "instance_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "registered_at": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/instance/status": {
+      "get": {
+        "tags": [
+          "Instance"
+        ],
+        "description": "Instance status. Auth: X-Instance-Token (activation token) or X-Admin-Token. Updates last_seen_at.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "instance_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "registered_at": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Health check and documentation"
+    },
+    {
+      "name": "Agents",
+      "description": "Agent identity (register, me). HMAC auth on protected routes."
+    },
+    {
+      "name": "Wallet",
+      "description": "Balance and transfers. Requires HMAC auth (X-Agent-Id, X-Timestamp, X-Signature)."
+    },
+    {
+      "name": "Services",
+      "description": "Service registry (capabilities). HMAC auth to create."
+    },
+    {
+      "name": "Executions",
+      "description": "Execute services (debit, webhook, credit). HMAC auth."
+    },
+    {
+      "name": "Reputation",
+      "description": "Reputation metrics per agent and per service."
+    },
+    {
+      "name": "Human",
+      "description": "Human identity (email), verification, link to agents. JWT for /me and link flow."
+    },
+    {
+      "name": "Admin",
+      "description": "Mint and issuer management. Requires X-Admin-Token header."
+    },
+    {
+      "name": "Faucet",
+      "description": "Self-host faucet. Only active when ENABLE_FAUCET=true."
+    },
+    {
+      "name": "Issuer",
+      "description": "Issuer-signed credit. Headers X-Issuer-Id, X-Issuer-Timestamp, X-Issuer-Signature."
+    },
+    {
+      "name": "Instance",
+      "description": "Instance registration and activation. Status with X-Instance-Token or X-Admin-Token."
+    }
+  ]
+}

@@ -284,6 +284,18 @@ Dated project documentation lives in the **`docs/`** folder. Naming: `Ymd-<slug>
 - **Project status and API** — current state, contents, authentication, and endpoints.
 - **First commit and progress** — what was delivered in the initial commit and current milestone (see `docs/20250204-first-commit-and-progress.md`).
 
+### API documentation (JSON)
+
+The same JSON served by the API at runtime is available in the repo for reference and offline use. Generate or update them with `npm run docs:json` (requires the database to be running). A **pre-push** Git hook runs this automatically before each `git push`; use `git push --no-verify` to skip it (e.g. when the database is not available).
+
+| File | Description | API endpoint |
+|------|-------------|--------------|
+| [docs/root.json](docs/root.json) | Discovery: docs links and system info (e.g. available coins) | `GET /` |
+| [docs/swagger.json](docs/swagger.json) | OpenAPI 3 specification | `GET /swagger.json` |
+| [docs/doc-ia.json](docs/doc-ia.json) | Documentation for AI: auth, business rules, transactions, schemas | `GET /doc-ia` |
+
+Interactive Swagger UI is at **`/docs`** when the API is running.
+
 ---
 
 ## Future / Managed Services

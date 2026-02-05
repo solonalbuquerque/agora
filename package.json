@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "prepare": "node scripts/install-git-hooks.js",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "migrate": "node scripts/migrate.js",
@@ -17,6 +18,7 @@
     "sign-request": "node scripts/sign-request.js",
     "sign-issuer-request": "node scripts/sign-issuer-request.js",
     "promote-trust-levels": "node scripts/promote-trust-levels.js",
+    "docs:json": "node scripts/generate-docs-json.js",
     "docker:down": "docker compose down",
     "docker:reset": "docker compose down -v",
     "docker:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Runs before every git push. Regenerates docs/root.json, docs/swagger.json, docs/doc-ia.json.
+# Requires database to be available. Skip with: git push --no-verify
+
+cd "$(git rev-parse --show-toplevel)" && npm run docs:json
+exit $?

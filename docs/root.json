@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "docs": {
+    "swagger_ui": "http://localhost:3000/docs",
+    "swagger_spec": "http://localhost:3000/swagger.json",
+    "doc_ia": "http://localhost:3000/doc-ia"
+  },
+  "system": {
+    "available_coins": ["AGOTEST"],
+    "service": "agora-core",
+    "version": "1.0.0",
+    "default_coin": "AGOTEST"
+  }
+}
