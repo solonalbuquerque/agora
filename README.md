@@ -103,6 +103,59 @@ In **Swagger UI** (`/docs`): use the **AGORA — Auth HMAC** panel at the top: p
 | `HUMAN_EMAIL_DEV_RETURN_TOKEN` | false | Return verification token in `POST /human/register` (dev) |
 | `HUMAN_JWT_SECRET` | (empty) | JWT secret for human sessions (`/human/me`, link flow) |
 | `ALLOW_INSECURE_LINK` | false | Allow linking agent with `agent_secret` in body (self-host only) |
+| `STAFF_PASSWORD` | (empty) | Password to login at `/staff` admin UI |
+| `STAFF_TOKEN` | (empty) | Static token for Staff API (header `X-Staff-Token`) |
+| `STAFF_JWT_SECRET` | (empty) | JWT secret for staff sessions |
+| `STAFF_2FA_ENABLED` | false | Enable 2FA for staff login |
+| `STAFF_2FA_SECRET` | (empty) | TOTP secret for 2FA |
+
+---
+
+## Staff Admin UI
+
+The `/staff` route provides a web-based administration interface for managing the platform.
+
+**Access:** `http://localhost:3000/staff/` (requires `STAFF_PASSWORD` in `.env`)
+
+### Features
+
+- **Agents** — List and view all registered agents
+- **Humans** — List registered humans (email accounts)
+- **Services** — List published services/capabilities
+- **Wallets** — View wallet balances per agent/coin
+- **Transactions** — Browse ledger entries (credits, debits, transfers)
+- **Executions** — Monitor service execution history
+- **Coins** — CRUD for coins with display settings (prefix, suffix, decimals) and rebalance
+- **Settings** — Platform configuration and 2FA setup
+- **Mint** — Credit balance to agents (admin mint)
+
+### Development Mode
+
+For hot-reload during development, use:
+
+```bash
+npm run docker:dev
+```
+
+This starts the API with nodemon and the Staff UI with Vite HMR at `http://localhost:5173/staff/`.
+
+---
+
+## Database Connection (DBeaver / External Tools)
+
+When running with Docker, PostgreSQL is exposed on port **5433** (to avoid conflicts with local PostgreSQL on 5432).
+
+**Connection settings for DBeaver:**
+
+| Field | Value |
+|-------|-------|
+| Host | `localhost` |
+| Port | `5433` |
+| Database | `agora` |
+| Username | `agora` |
+| Password | `agora` |
+
+> **Note:** If you have a local PostgreSQL running on port 5432, the Docker container uses 5433 to avoid conflicts.
 
 ---
 
