@@ -112,7 +112,11 @@ export default function Ledger() {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.id}</td>
+                  <td>
+                    <Link to={`/ledger/${r.id}`} style={{ color: '#a78bfa' }}>
+                      {r.id}
+                    </Link>
+                  </td>
                   <td>
                     <Link to={`/agents/${r.agent_id}`} style={{ color: '#a78bfa' }}>
                       <code>{r.agent_id}</code>
@@ -130,7 +134,7 @@ export default function Ledger() {
                       {r.type}
                     </span>
                   </td>
-                  <td>{Number(r.amount_cents).toLocaleString()}</td>
+                  <td>{r.amount_formated || Number(r.amount_cents).toLocaleString()}</td>
                   <td>{r.created_at ? new Date(r.created_at).toLocaleString() : '-'}</td>
                 </tr>
               ))}

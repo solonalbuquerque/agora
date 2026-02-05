@@ -31,6 +31,7 @@ export const api = {
   updateHumanStatus: (id, status) => request(`/staff/api/humans/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }),
   wallets: (q) => request(`/staff/api/wallets?${new URLSearchParams(q || {})}`),
   ledger: (q) => request(`/staff/api/ledger?${new URLSearchParams(q || {})}`),
+  getLedgerEntry: (id) => request(`/staff/api/ledger/${id}`),
   executions: (q) => request(`/staff/api/executions?${new URLSearchParams(q || {})}`),
   getExecution: (id) => request(`/staff/api/executions/${id}`),
   services: (q) => request(`/staff/api/services?${new URLSearchParams(q || {})}`),

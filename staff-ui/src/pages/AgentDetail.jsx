@@ -206,7 +206,7 @@ export default function AgentDetail() {
                   {wallets.map((w) => (
                     <tr key={w.coin}>
                       <td>{w.coin}</td>
-                      <td>{Number(w.balance_cents).toLocaleString()}</td>
+                      <td>{w.balance_formated || Number(w.balance_cents).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -243,7 +243,7 @@ export default function AgentDetail() {
                         </Link>
                       </td>
                       <td>{s.name}</td>
-                      <td>{(Number(s.price_cents) / 100).toFixed(2)} {s.coin}</td>
+                      <td>{s.price_formated || `${(Number(s.price_cents) / 100).toFixed(2)} ${s.coin}`}</td>
                       <td>
                         <span style={{
                           padding: '0.125rem 0.375rem',
@@ -299,7 +299,7 @@ export default function AgentDetail() {
                         </span>
                       </td>
                       <td>{t.coin}</td>
-                      <td>{Number(t.amount_cents).toLocaleString()}</td>
+                      <td>{t.amount_formated || Number(t.amount_cents).toLocaleString()}</td>
                       <td>{t.created_at ? new Date(t.created_at).toLocaleString() : '-'}</td>
                     </tr>
                   ))}

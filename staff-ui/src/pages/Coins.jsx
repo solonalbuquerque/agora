@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import PageHeader from '../components/PageHeader';
 import SlideModal from '../components/SlideModal';
+import { money } from '../utils/money';
 
 export default function Coins() {
   const navigate = useNavigate();
@@ -129,11 +130,7 @@ export default function Coins() {
   };
 
   // Format amount with coin display settings
-  const formatAmount = (cents, coin) => {
-    const dec = coin.decimals ?? 2;
-    const value = (Number(cents) / Math.pow(10, dec)).toFixed(dec);
-    return `${coin.prefix || ''}${value}${coin.suffix ? ' ' + coin.suffix : ''}`;
-  };
+  const formatAmount = (cents, coin) => money(cents, coin);
 
   return (
     <>
@@ -177,7 +174,7 @@ export default function Coins() {
                       {c.prefix || ''}123{c.suffix ? ' ' + c.suffix : ''} ({c.decimals ?? 2} dec)
                     </code>
                   </td>
-                  <td>{formatAmount(c.circulating_cents || 0, c)}</td>
+                  <td>{c.circulating_formated || formatAmount(c.circulating_cents || 0, c)}</td>
                   <td>
                     <button type="button" className="small" onClick={() => openEdit(c)} style={{ marginRight: '0.25rem' }}>Edit</button>
                     <button type="button" className="small danger" onClick={() => handleDelete(c.coin)}>Delete</button>

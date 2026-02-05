@@ -14,6 +14,7 @@ const { created, success } = require('../lib/responses');
 const { badRequest, conflict } = require('../lib/errors');
 const { requireStaff, sign, sign2faPending, verify2faPending } = require('../lib/staffAuth');
 const { getTotpSecret, generateSecret, generateOtpauthUrl, verifyToken } = require('../lib/totp');
+const { formatMoney } = require('../lib/money');
 
 function staffPreHandler(request, reply, done) {
   const path = request.routerPath || request.url.split('?')[0];
@@ -27,6 +28,15 @@ function staffPreHandler(request, reply, done) {
   
   if (isPublicPost || isPublicGet) return done();
   return requireStaff(request, reply, done);
+}
+
+async function getCoinsMap() {
+  const coins = await walletsDb.listCoins();
+  const map = {};
+  for (const c of coins) {
+    map[c.coin] = c;
+  }
+  return map;
 }
 
 async function staffRoutes(fastify, opts) {
@@ -409,8 +419,13 @@ async function staffRoutes(fastify, opts) {
     const { limit, offset, agent_id, coin, q } = request.query || {};
     const result = await walletsDb.listWallets({ limit, offset, agent_id, coin, q });
     const rows = Array.isArray(result?.rows) ? result.rows : [];
+    const coinsMap = await getCoinsMap();
+    const formattedRows = rows.map((r) => ({
+      ...r,
+      balance_formated: formatMoney(r.balance_cents, r.coin, coinsMap),
+    }));
     const total = Number(result?.total) || 0;
-    const response = { ok: true, data: { rows, total } };
+    const response = { ok: true, data: { rows: formattedRows, total } };
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
     reply.raw.end(JSON.stringify(response));
     return;
@@ -422,8 +437,26 @@ async function staffRoutes(fastify, opts) {
     const { limit, offset, agent_id, coin, type, q } = request.query || {};
     const result = await walletsDb.listLedger({ limit, offset, agent_id, coin, type, q });
     const rows = Array.isArray(result?.rows) ? result.rows : [];
+    const coinsMap = await getCoinsMap();
+    const formattedRows = rows.map((r) => ({
+      ...r,
+      amount_formated: formatMoney(r.amount_cents, r.coin, coinsMap),
+    }));
     const total = Number(result?.total) || 0;
-    const response = { ok: true, data: { rows, total } };
+    const response = { ok: true, data: { rows: formattedRows, total } };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
+  });
+
+  fastify.get('/api/ledger/:id', {
+    schema: { tags: ['Staff'], description: 'Get ledger entry by ID' },
+  }, async (request, reply) => {
+    const entry = await walletsDb.getLedgerById(request.params.id);
+    if (!entry) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Ledger entry not found' });
+    const coinCfg = await walletsDb.getCoin(entry.coin);
+    const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
+    const response = { ok: true, data: { ...entry, amount_formated: formatMoney(entry.amount_cents, entry.coin, coinsMap) } };
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
     reply.raw.end(JSON.stringify(response));
     return;
@@ -435,8 +468,13 @@ async function staffRoutes(fastify, opts) {
     const { limit, offset, status, owner_agent_id, coin, q } = request.query || {};
     const result = await servicesDb.list({ limit, offset, status, owner_agent_id, coin, q });
     const rows = Array.isArray(result?.rows) ? result.rows : [];
+    const coinsMap = await getCoinsMap();
+    const formattedRows = rows.map((r) => ({
+      ...r,
+      price_formated: formatMoney(r.price_cents, r.coin, coinsMap),
+    }));
     const total = Number(result?.total) || 0;
-    const response = { ok: true, data: { rows, total } };
+    const response = { ok: true, data: { rows: formattedRows, total } };
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
     reply.raw.end(JSON.stringify(response));
     return;
@@ -447,7 +485,9 @@ async function staffRoutes(fastify, opts) {
   }, async (request, reply) => {
     const service = await servicesDb.getById(request.params.id);
     if (!service) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Service not found' });
-    const response = { ok: true, data: service };
+    const coinCfg = await walletsDb.getCoin(service.coin);
+    const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
+    const response = { ok: true, data: { ...service, price_formated: formatMoney(service.price_cents, service.coin, coinsMap) } };
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
     reply.raw.end(JSON.stringify(response));
     return;
@@ -502,7 +542,13 @@ async function staffRoutes(fastify, opts) {
     schema: { tags: ['Staff'], description: 'List coins' },
   }, async (_request, reply) => {
     const rows = await walletsDb.listCoins();
-    const response = { ok: true, data: { rows } };
+    const coinsMap = {};
+    for (const c of rows) coinsMap[c.coin] = c;
+    const formattedRows = rows.map((r) => ({
+      ...r,
+      circulating_formated: formatMoney(r.circulating_cents, r.coin, coinsMap),
+    }));
+    const response = { ok: true, data: { rows: formattedRows } };
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
     reply.raw.end(JSON.stringify(response));
     return;
@@ -537,7 +583,17 @@ async function staffRoutes(fastify, opts) {
     if (!coinData) {
       return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Coin not found' });
     }
-    return reply.send({ ok: true, data: coinData });
+    const coinsMap = { [coinData.coin]: coinData };
+    const response = {
+      ok: true,
+      data: {
+        ...coinData,
+        circulating_formated: formatMoney(coinData.circulating_cents, coinData.coin, coinsMap),
+      },
+    };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
   });
 
   fastify.put('/api/coins/:coin', {

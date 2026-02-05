@@ -153,7 +153,7 @@ export default function Wallets() {
                     </Link>
                   </td>
                   <td>{w.coin}</td>
-                  <td>{Number(w.balance_cents).toLocaleString()}</td>
+                  <td>{w.balance_formated || Number(w.balance_cents).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>

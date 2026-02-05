@@ -124,7 +124,7 @@ export default function Services() {
                       <code title={s.owner_agent_id}>{s.owner_agent_id.slice(0, 8)}...</code>
                     </Link>
                   </td>
-                  <td>{(Number(s.price_cents) / 100).toFixed(2)}</td>
+                  <td>{s.price_formated || (Number(s.price_cents) / 100).toFixed(2)}</td>
                   <td>{s.coin}</td>
                   <td>
                     <span style={{

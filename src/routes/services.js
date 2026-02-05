@@ -1,8 +1,10 @@
 'use strict';
 
 const servicesDb = require('../db/services');
+const walletsDb = require('../db/wallets');
 const { created, success, list } = require('../lib/responses');
 const { badRequest, notFound, forbidden } = require('../lib/errors');
+const { formatMoney } = require('../lib/money');
 
 async function servicesRoutes(fastify, opts) {
   const requireAuth = opts.requireAgentAuth;
@@ -44,6 +46,7 @@ async function servicesRoutes(fastify, opts) {
                 input_schema: { type: 'object', nullable: true },
                 output_schema: { type: 'object', nullable: true },
                 price_cents: { type: 'integer' },
+                price_formated: { type: 'string' },
                 coin: { type: 'string' },
                 status: { type: 'string' },
                 created_at: { type: 'string', format: 'date-time' },
@@ -69,7 +72,9 @@ async function servicesRoutes(fastify, opts) {
       price_cents: body.price_cents ?? 0,
       coin: body.coin || 'AGOTEST',
     });
-    return created(reply, service);
+    const coinCfg = await walletsDb.getCoin(service.coin);
+    const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
+    return created(reply, { ...service, price_formated: formatMoney(service.price_cents, service.coin, coinsMap) });
   });
 
   fastify.get('/', {
@@ -94,8 +99,15 @@ async function servicesRoutes(fastify, opts) {
     if (request.query?.q != null && request.query.q !== '') filters.q = request.query.q;
     const result = await servicesDb.list(filters);
     const rows = Array.isArray(result?.rows) ? result.rows : (Array.isArray(result) ? result : []);
+    const coins = await walletsDb.listCoins();
+    const coinsMap = {};
+    for (const c of coins) coinsMap[c.coin] = c;
+    const formattedRows = rows.map((r) => ({
+      ...r,
+      price_formated: formatMoney(r.price_cents, r.coin, coinsMap),
+    }));
     const total = Number(result?.total) || rows.length;
-    return list(reply, rows, { total });
+    return list(reply, formattedRows, { total });
   });
 
   fastify.get('/:id', {
@@ -118,6 +130,7 @@ async function servicesRoutes(fastify, opts) {
                 input_schema: { type: 'object', nullable: true },
                 output_schema: { type: 'object', nullable: true },
                 price_cents: { type: 'integer' },
+                price_formated: { type: 'string' },
                 coin: { type: 'string' },
                 status: { type: 'string' },
                 created_at: { type: 'string', format: 'date-time' },
@@ -130,7 +143,9 @@ async function servicesRoutes(fastify, opts) {
   }, async (request, reply) => {
     const service = await servicesDb.getById(request.params.id);
     if (!service) return notFound(reply, 'Service not found');
-    return success(reply, service);
+    const coinCfg = await walletsDb.getCoin(service.coin);
+    const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
+    return success(reply, { ...service, price_formated: formatMoney(service.price_cents, service.coin, coinsMap) });
   });
 
   const serviceDataSchema = {
@@ -144,6 +159,7 @@ async function servicesRoutes(fastify, opts) {
       input_schema: { type: 'object', nullable: true },
       output_schema: { type: 'object', nullable: true },
       price_cents: { type: 'integer' },
+      price_formated: { type: 'string' },
       coin: { type: 'string' },
       status: { type: 'string', enum: ['active', 'paused', 'removed'] },
       created_at: { type: 'string', format: 'date-time' },
@@ -198,7 +214,9 @@ async function servicesRoutes(fastify, opts) {
       coin: body.coin,
       status: body.status,
     });
-    return success(reply, updated);
+    const coinCfg = await walletsDb.getCoin(updated.coin);
+    const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
+    return success(reply, { ...updated, price_formated: formatMoney(updated.price_cents, updated.coin, coinsMap) });
   });
 }
 

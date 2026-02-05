@@ -9,6 +9,7 @@ import Services from './pages/Services';
 import ServiceDetail from './pages/ServiceDetail';
 import Wallets from './pages/Wallets';
 import Ledger from './pages/Ledger';
+import LedgerDetail from './pages/LedgerDetail';
 import Coins from './pages/Coins';
 import Executions from './pages/Executions';
 import ExecutionDetail from './pages/ExecutionDetail';
@@ -28,6 +29,7 @@ function App() {
         <Route path="services/:id" element={<ServiceDetail />} />
         <Route path="wallets" element={<Wallets />} />
         <Route path="ledger" element={<Ledger />} />
+        <Route path="ledger/:id" element={<LedgerDetail />} />
         <Route path="coins" element={<Coins />} />
         <Route path="executions" element={<Executions />} />
         <Route path="executions/:id" element={<ExecutionDetail />} />

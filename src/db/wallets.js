@@ -235,6 +235,14 @@ async function listLedger(filters = {}) {
   return { rows: res.rows, total };
 }
 
+async function getLedgerById(id) {
+  const res = await query(
+    'SELECT id, uuid, agent_id, coin, type, amount_cents, metadata, external_ref, created_at FROM ledger_entries WHERE id = $1',
+    [id]
+  );
+  return res.rows[0] || null;
+}
+
 async function listCoins() {
   const res = await query('SELECT coin, name, qtd_cents, circulating_cents, prefix, suffix, decimals FROM wallets_coins ORDER BY coin');
   return res.rows;
@@ -318,6 +326,7 @@ module.exports = {
   getStatement,
   listWallets,
   listLedger,
+  getLedgerById,
   listCoins,
   getCoin,
   createCoin,

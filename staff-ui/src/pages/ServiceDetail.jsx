@@ -83,7 +83,7 @@ export default function ServiceDetail() {
                 </tr>
                 <tr>
                   <td style={{ fontWeight: 'bold' }}>Price</td>
-                  <td>{(Number(service.price_cents) / 100).toFixed(2)} {service.coin}</td>
+                  <td>{service.price_formated || `${(Number(service.price_cents) / 100).toFixed(2)} ${service.coin}`}</td>
                 </tr>
                 <tr>
                   <td style={{ fontWeight: 'bold' }}>Webhook URL</td>
