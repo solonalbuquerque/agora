@@ -113,10 +113,16 @@ async function executionsRoutes(fastify, opts) {
 
     let executionRow;
     await withTransaction(async (client) => {
-      if (price > 0) {
-        await walletsDb.debit(client, requesterAgentId, coin, price, { service_id: serviceId, type: 'execution' });
-      }
+      // Criar execução primeiro para ter o uuid
       executionRow = await executionsDb.create(client, requesterAgentId, serviceId, requestPayload);
+      if (price > 0) {
+        // Débito com execution_uuid no metadata
+        await walletsDb.debit(client, requesterAgentId, coin, price, { 
+          service_id: serviceId, 
+          type: 'execution',
+          execution_uuid: executionRow.uuid 
+        });
+      }
     });
 
     const ourCallbackUrl = `${baseUrl}/executions/${executionRow.uuid}`;
@@ -221,9 +227,17 @@ async function executionsRoutes(fastify, opts) {
       const ok = await executionsDb.updateResultIfPending(client, execution.id, status, responsePayload, latencyMs);
       if (!ok) return false;
       if (status === 'success' && price > 0) {
-        await walletsDb.credit(client, service.owner_agent_id, coin, price, { execution_id: execution.id, type: 'execution_payment' });
+        await walletsDb.credit(client, service.owner_agent_id, coin, price, { 
+          execution_id: execution.id, 
+          execution_uuid: execution.uuid,
+          type: 'execution_payment' 
+        });
       } else if (status === 'failed' && price > 0) {
-        await walletsDb.credit(client, execution.requester_agent_id, coin, price, { execution_id: execution.id, type: 'refund' });
+        await walletsDb.credit(client, execution.requester_agent_id, coin, price, { 
+          execution_id: execution.id, 
+          execution_uuid: execution.uuid,
+          type: 'refund' 
+        });
       }
       return true;
     });

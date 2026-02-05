@@ -1,0 +1,5 @@
+{
+  "watch": ["src", "scripts", "migrations"],
+  "ext": "js,json,sql",
+  "ignore": ["node_modules", "staff-ui"]
+}

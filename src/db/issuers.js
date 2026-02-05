@@ -38,10 +38,18 @@ async function revoke(id) {
   return getById(id);
 }
 
+async function list() {
+  const res = await query(
+    'SELECT id, name, status, created_at, revoked_at FROM issuers ORDER BY created_at DESC'
+  );
+  return res.rows;
+}
+
 module.exports = {
   createIssuer,
   getById,
   getSecretById,
   verifySignature,
   revoke,
+  list,
 };

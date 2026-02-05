@@ -84,6 +84,47 @@ async function getHumansByAgentId(agentId) {
   return res.rows;
 }
 
+async function updateStatus(id, status) {
+  const res = await query(
+    'UPDATE humans SET status = $1 WHERE id = $2 RETURNING id, email, status, created_at, verified_at',
+    [status, id]
+  );
+  return res.rows[0] || null;
+}
+
+async function list(filters = {}) {
+  const limit = Math.min(Math.max(Number(filters.limit) || 20, 1), 100);
+  const offset = Math.max(Number(filters.offset) || 0, 0);
+  let where = '1=1';
+  const params = [];
+  let paramIndex = 1;
+  
+  if (filters.status) {
+    params.push(filters.status);
+    where += ` AND status = $${paramIndex++}`;
+  }
+  
+  // Count query
+  const countRes = await query(`SELECT COUNT(*)::int AS total FROM humans WHERE ${where}`, params);
+  const total = countRes.rows[0]?.total ?? 0;
+  
+  // Data query - add limit and offset to params
+  const dataParams = [...params];
+  dataParams.push(limit, offset);
+  const limitParamIndex = paramIndex;
+  const offsetParamIndex = paramIndex + 1;
+  
+  const res = await query(
+    `SELECT id, email, status, created_at, verified_at FROM humans WHERE ${where} ORDER BY created_at DESC LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
+    dataParams
+  );
+  
+  const rows = Array.isArray(res?.rows) ? res.rows : [];
+  console.log('[humans.list] Query result:', { rowsCount: rows.length, total, filters, limit, offset });
+  
+  return { rows, total };
+}
+
 module.exports = {
   hashToken,
   createHuman,
@@ -95,4 +136,6 @@ module.exports = {
   linkAgent,
   getAgentsByHumanId,
   getHumansByAgentId,
+  updateStatus,
+  list,
 };

@@ -173,6 +173,129 @@ async function getStatement(agentId, coin, filters = {}) {
   return { rows: res.rows, total };
 }
 
+async function listWallets(filters = {}) {
+  const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 200);
+  const offset = Math.max(Number(filters.offset) || 0, 0);
+  let where = '1=1';
+  const params = [];
+  let i = 1;
+  if (filters.agent_id) {
+    params.push(filters.agent_id);
+    where += ` AND agent_id = $${i++}`;
+  }
+  if (filters.coin) {
+    params.push(filters.coin);
+    where += ` AND coin = $${i++}`;
+  }
+  const countRes = await query(`SELECT COUNT(*)::int AS total FROM wallets WHERE ${where}`, params);
+  const total = countRes.rows[0]?.total ?? 0;
+  params.push(limit, offset);
+  const res = await query(
+    `SELECT agent_id, coin, balance_cents FROM wallets WHERE ${where} ORDER BY agent_id, coin LIMIT $${i} OFFSET $${i + 1}`,
+    params
+  );
+  return { rows: res.rows, total };
+}
+
+async function listLedger(filters = {}) {
+  const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100);
+  const offset = Math.max(Number(filters.offset) || 0, 0);
+  let where = '1=1';
+  const params = [];
+  let i = 1;
+  if (filters.agent_id) {
+    params.push(filters.agent_id);
+    where += ` AND agent_id = $${i++}`;
+  }
+  if (filters.coin) {
+    params.push(filters.coin);
+    where += ` AND coin = $${i++}`;
+  }
+  if (filters.type) {
+    params.push(filters.type);
+    where += ` AND type = $${i++}`;
+  }
+  const countRes = await query(`SELECT COUNT(*)::int AS total FROM ledger_entries WHERE ${where}`, params);
+  const total = countRes.rows[0]?.total ?? 0;
+  params.push(limit, offset);
+  const res = await query(
+    `SELECT id, uuid, agent_id, coin, type, amount_cents, metadata, external_ref, created_at FROM ledger_entries WHERE ${where} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
+    params
+  );
+  return { rows: res.rows, total };
+}
+
+async function listCoins() {
+  const res = await query('SELECT coin, name, qtd_cents, circulating_cents, prefix, suffix, decimals FROM wallets_coins ORDER BY coin');
+  return res.rows;
+}
+
+async function getCoin(coin) {
+  const res = await query('SELECT coin, name, qtd_cents, circulating_cents, prefix, suffix, decimals FROM wallets_coins WHERE coin = $1', [coin]);
+  return res.rows[0] || null;
+}
+
+async function createCoin(coin, name, qtdCents = 0, prefix = '', suffix = '', decimals = 2) {
+  const coinUpper = (coin || '').toString().slice(0, 16).toUpperCase();
+  await query(
+    'INSERT INTO wallets_coins (coin, name, qtd_cents, prefix, suffix, decimals) VALUES ($1, $2, $3, $4, $5, $6)',
+    [coinUpper, name || coinUpper, Number(qtdCents) || 0, prefix || '', suffix || '', Number(decimals) || 2]
+  );
+  return getCoin(coinUpper);
+}
+
+async function updateCoin(coin, data) {
+  const updates = [];
+  const values = [];
+  let i = 1;
+  if (data.name !== undefined) {
+    updates.push(`name = $${i++}`);
+    values.push(data.name);
+  }
+  if (data.qtd_cents !== undefined) {
+    updates.push(`qtd_cents = $${i++}`);
+    values.push(Number(data.qtd_cents) || 0);
+  }
+  if (data.prefix !== undefined) {
+    updates.push(`prefix = $${i++}`);
+    values.push((data.prefix || '').toString().slice(0, 10));
+  }
+  if (data.suffix !== undefined) {
+    updates.push(`suffix = $${i++}`);
+    values.push((data.suffix || '').toString().slice(0, 10));
+  }
+  if (data.decimals !== undefined) {
+    updates.push(`decimals = $${i++}`);
+    values.push(Number(data.decimals) || 2);
+  }
+  if (updates.length === 0) return getCoin(coin);
+  values.push(coin);
+  await query(`UPDATE wallets_coins SET ${updates.join(', ')} WHERE coin = $${i}`, values);
+  return getCoin(coin);
+}
+
+async function deleteCoin(coin) {
+  const res = await query('DELETE FROM wallets_coins WHERE coin = $1 RETURNING coin', [coin]);
+  return res.rowCount > 0;
+}
+
+/**
+ * Rebalance: calculate circulating amount for all coins based on wallet balances
+ */
+async function rebalanceCoins() {
+  // Get sum of balances per coin
+  const res = await query(`
+    UPDATE wallets_coins wc
+    SET circulating_cents = COALESCE((
+      SELECT SUM(w.balance_cents) 
+      FROM wallets w 
+      WHERE w.coin = wc.coin
+    ), 0)
+    RETURNING coin, circulating_cents
+  `);
+  return res.rows;
+}
+
 module.exports = {
   getBalance,
   ensureWallet,
@@ -183,4 +306,12 @@ module.exports = {
   debit,
   credit,
   getStatement,
+  listWallets,
+  listLedger,
+  listCoins,
+  getCoin,
+  createCoin,
+  updateCoin,
+  deleteCoin,
+  rebalanceCoins,
 };

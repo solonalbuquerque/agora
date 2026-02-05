@@ -42,9 +42,22 @@ async function updateStatus(id, status) {
   await query('UPDATE agents SET status = $1 WHERE id = $2', [status, id]);
 }
 
+async function list(filters = {}) {
+  const limit = Math.min(Math.max(Number(filters.limit) || 20, 1), 100);
+  const offset = Math.max(Number(filters.offset) || 0, 0);
+  const countRes = await query('SELECT COUNT(*)::int AS total FROM agents', []);
+  const total = countRes.rows[0]?.total ?? 0;
+  const res = await query(
+    'SELECT id, name, status, trust_level, created_at FROM agents ORDER BY created_at DESC LIMIT $1 OFFSET $2',
+    [limit, offset]
+  );
+  return { rows: res.rows, total };
+}
+
 module.exports = {
   create,
   getById,
   getSecretById,
   updateStatus,
+  list,
 };

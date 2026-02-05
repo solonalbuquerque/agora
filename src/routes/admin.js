@@ -61,6 +61,11 @@ async function adminRoutes(fastify) {
     if (!agentId || !coin || amountCents == null || amountCents < 1) {
       return badRequest(reply, 'agent_id, coin, and amount_cents (positive) are required');
     }
+    // Verificar se o agent existe antes de tentar criar a wallet
+    const agentCheck = await query('SELECT id FROM agents WHERE id = $1', [agentId]);
+    if (agentCheck.rows.length === 0) {
+      return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: `Agent ${agentId} not found` });
+    }
     const coinNorm = coin.toString().slice(0, 16).toUpperCase();
     if (externalRef) {
       const exists = await walletsDb.existsLedgerByExternalRef(null, coinNorm, externalRef);

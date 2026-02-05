@@ -43,34 +43,41 @@ async function getById(id) {
 }
 
 async function list(filters = {}) {
-  let { status, owner_agent_id, coin, q } = filters;
+  let { status, owner_agent_id, coin, q, limit = 50, offset = 0 } = filters;
   if (status === undefined || status === null) {
     status = 'active';
   }
-  let sql = `SELECT id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, created_at
-             FROM services WHERE 1=1`;
+  let whereSql = ' WHERE 1=1';
   const params = [];
   let i = 1;
   if (status) {
     params.push(status);
-    sql += ` AND status = $${i++}`;
+    whereSql += ` AND status = $${i++}`;
   }
   if (owner_agent_id) {
     params.push(owner_agent_id);
-    sql += ` AND owner_agent_id = $${i++}`;
+    whereSql += ` AND owner_agent_id = $${i++}`;
   }
   if (coin) {
     params.push(coin);
-    sql += ` AND coin = $${i++}`;
+    whereSql += ` AND coin = $${i++}`;
   }
   if (q != null && q !== '') {
     params.push(q);
-    sql += ` AND (position(lower($${i}) in lower(name)) > 0 OR position(lower($${i}) in lower(COALESCE(description, ''))) > 0 OR (input_schema IS NOT NULL AND position(lower($${i}) in lower(input_schema::text)) > 0))`;
+    whereSql += ` AND (position(lower($${i}) in lower(name)) > 0 OR position(lower($${i}) in lower(COALESCE(description, ''))) > 0 OR (input_schema IS NOT NULL AND position(lower($${i}) in lower(input_schema::text)) > 0))`;
     i++;
   }
-  sql += ' ORDER BY created_at DESC';
+  
+  // Count total
+  const countRes = await query(`SELECT COUNT(*) as total FROM services${whereSql}`, params);
+  const total = parseInt(countRes.rows[0]?.total || 0, 10);
+  
+  // Get rows with pagination
+  const sql = `SELECT id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, created_at
+               FROM services${whereSql} ORDER BY created_at DESC LIMIT $${i++} OFFSET $${i++}`;
+  params.push(Number(limit) || 50, Number(offset) || 0);
   const res = await query(sql, params);
-  return res.rows;
+  return { rows: res.rows, total };
 }
 
 async function update(id, data) {

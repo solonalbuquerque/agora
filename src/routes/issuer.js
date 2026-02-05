@@ -5,7 +5,7 @@ const walletsDb = require('../db/wallets');
 const { buildSigningPayload, sha256Hex, isTimestampValid } = require('../lib/auth');
 const { created } = require('../lib/responses');
 const { badRequest, unauthorized, conflict } = require('../lib/errors');
-const { withTransaction } = require('../db/index');
+const { query, withTransaction } = require('../db/index');
 
 function requireIssuerSignature() {
   return async function preHandler(request, reply) {
@@ -86,6 +86,11 @@ async function issuerRoutes(fastify) {
     const { agent_id: agentId, coin, amount_cents: amountCents, external_ref: externalRef, memo } = request.body || {};
     if (!agentId || !coin || amountCents == null || amountCents < 1 || !externalRef) {
       return badRequest(reply, 'agent_id, coin, amount_cents, and external_ref are required');
+    }
+    // Verificar se o agent existe antes de tentar criar a wallet
+    const agentCheck = await query('SELECT id FROM agents WHERE id = $1', [agentId]);
+    if (agentCheck.rows.length === 0) {
+      return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: `Agent ${agentId} not found` });
     }
     const coinNorm = coin.toString().slice(0, 16).toUpperCase();
     const exists = await walletsDb.existsLedgerByExternalRef(null, coinNorm, externalRef);

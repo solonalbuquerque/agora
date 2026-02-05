@@ -1,12 +1,15 @@
 'use strict';
 
 const fastify = require('fastify')({ logger: true });
+const cookie = require('@fastify/cookie');
 const cors = require('@fastify/cors');
 const swagger = require('@fastify/swagger');
 const swaggerUi = require('@fastify/swagger-ui');
 const config = require('./config');
 const routes = require('./routes');
 const { getSwaggerAgoraOptions } = require('./swagger-agora-config');
+
+fastify.register(cookie, { secret: config.staffJwtSecret || config.humanJwtSecret || 'cookie-secret' });
 
 // Store raw body for HMAC signature verification (must run before body is parsed)
 fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {

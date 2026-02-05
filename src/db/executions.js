@@ -98,6 +98,36 @@ async function listByRequester(requesterAgentId, filters = {}) {
   return { rows: res.rows, total };
 }
 
+/** List all executions (staff). Filters: status, service_id, requester_agent_id, limit, offset. */
+async function listAll(filters = {}) {
+  const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100);
+  const offset = Math.max(Number(filters.offset) || 0, 0);
+  let where = '1=1';
+  const params = [];
+  let i = 1;
+  if (filters.status) {
+    params.push(filters.status);
+    where += ` AND status = $${i++}`;
+  }
+  if (filters.service_id) {
+    params.push(filters.service_id);
+    where += ` AND service_id = $${i++}`;
+  }
+  if (filters.requester_agent_id) {
+    params.push(filters.requester_agent_id);
+    where += ` AND requester_agent_id = $${i++}`;
+  }
+  const countRes = await query(`SELECT COUNT(*)::int AS total FROM executions WHERE ${where}`, params);
+  const total = countRes.rows[0]?.total ?? 0;
+  params.push(limit, offset);
+  const res = await query(
+    `SELECT id, uuid, requester_agent_id, service_id, status, request, response, latency_ms, created_at
+     FROM executions WHERE ${where} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
+    params
+  );
+  return { rows: res.rows, total };
+}
+
 module.exports = {
   create,
   updateResult,
@@ -106,4 +136,5 @@ module.exports = {
   getById,
   getByUuid,
   listByRequester,
+  listAll,
 };

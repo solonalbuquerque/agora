@@ -85,16 +85,6 @@ async function servicesRoutes(fastify, opts) {
           q: { type: 'string', description: 'Search in name, description and input_schema (case-insensitive contains)' },
         },
       },
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            ok: { type: 'boolean' },
-            data: { type: 'array' },
-            meta: { type: 'object' },
-          },
-        },
-      },
     },
   }, async (request, reply) => {
     const filters = {};
@@ -102,8 +92,10 @@ async function servicesRoutes(fastify, opts) {
     if (request.query?.owner_agent_id) filters.owner_agent_id = request.query.owner_agent_id;
     if (request.query?.coin) filters.coin = (request.query.coin || '').toString().slice(0, 16).toUpperCase();
     if (request.query?.q != null && request.query.q !== '') filters.q = request.query.q;
-    const rows = await servicesDb.list(filters);
-    return list(reply, rows, { total: rows.length });
+    const result = await servicesDb.list(filters);
+    const rows = Array.isArray(result?.rows) ? result.rows : (Array.isArray(result) ? result : []);
+    const total = Number(result?.total) || rows.length;
+    return list(reply, rows, { total });
   });
 
   fastify.get('/:id', {

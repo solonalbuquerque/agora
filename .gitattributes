@@ -1,0 +1,2 @@
+# Shell scripts: sempre LF para evitar "illegal option -" no Alpine (CRLF no set -e)
+*.sh text eol=lf

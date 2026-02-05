@@ -1,0 +1,56 @@
+# Override para desenvolvimento: API com nodemon + Staff UI com Vite (autoreload)
+# Uso: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+services:
+  api:
+    build:
+      context: .
+      target: dev
+    ports:
+      - "3000:3000"
+    # Entrypoint dev: migração uma vez + nodemon (inline evita CRLF do Windows)
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /tmp/.migrations-done ]; then
+          echo "Running migrations..."
+          node scripts/migrate.js
+          touch /tmp/.migrations-done
+          echo "Migrations completed."
+        fi
+        echo "Starting API with nodemon..."
+        exec npx nodemon src/server.js
+    volumes:
+      - ./src:/app/src
+      - ./scripts:/app/scripts
+      - ./migrations:/app/migrations
+      - ./nodemon.json:/app/nodemon.json
+      - ./.env:/app/.env
+      # Staff UI build: API em :3000/staff serve os arquivos de staff-ui/dist
+      - ./staff-ui/dist:/app/staff-ui/dist
+
+  staff:
+    image: node:20-alpine
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    environment:
+      API_PROXY_TARGET: http://api:3000
+    volumes:
+      - ./staff-ui:/app
+      - staff_node_modules:/app/node_modules
+    command: >
+      sh -c "
+        echo 'Installing dependencies...' &&
+        npm install &&
+        echo 'Starting Vite dev server...' &&
+        npm run dev -- --host 0.0.0.0 --port 5173
+      "
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  staff_node_modules:

@@ -1,7 +1,7 @@
 'use strict';
 
 const config = require('../config');
-const { withTransaction } = require('../db/index');
+const { query, withTransaction } = require('../db/index');
 const walletsDb = require('../db/wallets');
 const { created } = require('../lib/responses');
 const { badRequest, forbidden } = require('../lib/errors');
@@ -51,6 +51,11 @@ async function faucetRoutes(fastify) {
       return badRequest(reply, 'agent_id and amount_cents (1–1000) are required');
     }
     if (amountCents > 1000) return badRequest(reply, 'amount_cents max 1000 per request');
+    // Verificar se o agent existe antes de tentar criar a wallet
+    const agentCheck = await query('SELECT id FROM agents WHERE id = $1', [agentId]);
+    if (agentCheck.rows.length === 0) {
+      return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: `Agent ${agentId} not found` });
+    }
     const ip = request.ip || request.headers['x-forwarded-for'] || 'unknown';
     const agentKey = FAUCET_PER_AGENT_KEY + agentId;
     const ipKey = FAUCET_PER_IP_KEY + ip;
