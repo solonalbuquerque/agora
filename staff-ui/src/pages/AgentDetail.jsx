@@ -13,6 +13,7 @@ export default function AgentDetail() {
   const [services, setServices] = useState({ rows: [], total: 0 });
   const [transactions, setTransactions] = useState({ rows: [], total: 0 });
   const [executions, setExecutions] = useState({ rows: [], total: 0 });
+  const [trustLevels, setTrustLevels] = useState([]);
 
   const load = () => {
     setLoadError('');
@@ -60,11 +61,23 @@ export default function AgentDetail() {
   useEffect(() => {
     load();
     loadRelated();
+    api.trustLevels().then((r) => setTrustLevels(r?.data?.rows || [])).catch(() => setTrustLevels([]));
   }, [id]);
 
   const handleStatus = async (status) => {
     try {
       await api.updateAgentStatus(id, status);
+      load();
+    } catch (err) {
+      alert(err?.message || 'Error');
+    }
+  };
+
+  const handleTrustLevelChange = async (level) => {
+    const value = parseInt(level, 10);
+    if (Number.isNaN(value) || value === (agent?.trust_level ?? -1)) return;
+    try {
+      await api.updateAgent(id, { trust_level: value });
       load();
     } catch (err) {
       alert(err?.message || 'Error');
@@ -152,7 +165,25 @@ export default function AgentDetail() {
                 </tr>
                 <tr>
                   <td style={{ fontWeight: 'bold' }}>Trust Level</td>
-                  <td>{agent.trust_level ?? '-'}</td>
+                  <td>
+                    <select
+                      value={agent.trust_level ?? 0}
+                      onChange={(e) => handleTrustLevelChange(e.target.value)}
+                      style={{ padding: '0.25rem 0.5rem', minWidth: '120px' }}
+                    >
+                      {trustLevels.length > 0
+                        ? trustLevels.map((l) => (
+                            <option key={l.level} value={l.level}>
+                              {l.level} – {l.name}
+                            </option>
+                          ))
+                        : [0, 1, 2, 3].map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                    </select>
+                  </td>
                 </tr>
                 <tr>
                   <td style={{ fontWeight: 'bold' }}>Created At</td>

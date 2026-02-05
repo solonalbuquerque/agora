@@ -14,6 +14,7 @@ import Coins from './pages/Coins';
 import Executions from './pages/Executions';
 import ExecutionDetail from './pages/ExecutionDetail';
 import Config from './pages/Config';
+import TrustLevels from './pages/TrustLevels';
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
         <Route path="coins" element={<Coins />} />
         <Route path="executions" element={<Executions />} />
         <Route path="executions/:id" element={<ExecutionDetail />} />
+        <Route path="trust-levels" element={<TrustLevels />} />
         <Route path="config" element={<Config />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

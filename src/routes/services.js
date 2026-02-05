@@ -2,9 +2,11 @@
 
 const servicesDb = require('../db/services');
 const walletsDb = require('../db/wallets');
+const agentsDb = require('../db/agents');
 const { created, success, list } = require('../lib/responses');
 const { badRequest, notFound, forbidden } = require('../lib/errors');
 const { formatMoney } = require('../lib/money');
+const { getAllowPaidServices } = require('../lib/trustLevels');
 
 async function servicesRoutes(fastify, opts) {
   const requireAuth = opts.requireAgentAuth;
@@ -62,6 +64,14 @@ async function servicesRoutes(fastify, opts) {
     if (!body.name || !body.webhook_url) {
       return badRequest(reply, 'name and webhook_url are required');
     }
+    const priceCents = body.price_cents ?? 0;
+    if (priceCents > 0) {
+      const owner = await agentsDb.getById(ownerAgentId);
+      const trustLevel = owner ? (owner.trust_level ?? 0) : 0;
+      if (!getAllowPaidServices(trustLevel)) {
+        return forbidden(reply, 'Your trust level does not allow publishing paid services. Reach Verified (level 1) or higher.');
+      }
+    }
     const service = await servicesDb.create({
       owner_agent_id: ownerAgentId,
       name: body.name,
@@ -69,7 +79,7 @@ async function servicesRoutes(fastify, opts) {
       webhook_url: body.webhook_url,
       input_schema: body.input_schema,
       output_schema: body.output_schema,
-      price_cents: body.price_cents ?? 0,
+      price_cents: priceCents,
       coin: body.coin || 'AGOTEST',
     });
     const coinCfg = await walletsDb.getCoin(service.coin);
@@ -204,6 +214,14 @@ async function servicesRoutes(fastify, opts) {
       return forbidden(reply, 'Only the owner can update this service');
     }
     const body = request.body || {};
+    const newPriceCents = body.price_cents !== undefined ? body.price_cents : service.price_cents;
+    if (newPriceCents > 0) {
+      const owner = await agentsDb.getById(agentId);
+      const trustLevel = owner ? (owner.trust_level ?? 0) : 0;
+      if (!getAllowPaidServices(trustLevel)) {
+        return forbidden(reply, 'Your trust level does not allow publishing paid services. Reach Verified (level 1) or higher.');
+      }
+    }
     const updated = await servicesDb.update(id, {
       name: body.name,
       description: body.description,

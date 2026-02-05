@@ -1,8 +1,10 @@
 'use strict';
 
 const walletsDb = require('../db/wallets');
+const agentsDb = require('../db/agents');
 const { success, list } = require('../lib/responses');
-const { badRequest, conflict } = require('../lib/errors');
+const { badRequest, conflict, forbidden } = require('../lib/errors');
+const { getMaxTransferPerTxCents } = require('../lib/trustLevels');
 
 async function walletRoutes(fastify, opts) {
   const requireAuth = opts.requireAgentAuth;
@@ -91,6 +93,11 @@ async function walletRoutes(fastify, opts) {
     if (!coin) return badRequest(reply, 'coin is required');
     if (!toAgentId || amount == null || amount < 1) {
       return badRequest(reply, 'to_agent and amount (positive) are required');
+    }
+    const fromAgent = await agentsDb.getById(fromAgentId);
+    const maxTx = fromAgent ? getMaxTransferPerTxCents(fromAgent.trust_level ?? 0) : null;
+    if (maxTx != null && amount > maxTx) {
+      return forbidden(reply, `Transfer amount exceeds your trust level limit (max ${maxTx} cents per transaction)`);
     }
     try {
       await walletsDb.transfer(fromAgentId, toAgentId, coin, amount);

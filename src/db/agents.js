@@ -42,6 +42,10 @@ async function updateStatus(id, status) {
   await query('UPDATE agents SET status = $1 WHERE id = $2', [status, id]);
 }
 
+async function updateTrustLevel(id, trustLevel) {
+  await query('UPDATE agents SET trust_level = $1 WHERE id = $2', [trustLevel, id]);
+}
+
 async function list(filters = {}) {
   const limit = Math.min(Math.max(Number(filters.limit) || 20, 1), 100);
   const offset = Math.max(Number(filters.offset) || 0, 0);
@@ -72,5 +76,6 @@ module.exports = {
   getById,
   getSecretById,
   updateStatus,
+  updateTrustLevel,
   list,
 };

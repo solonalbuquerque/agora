@@ -73,6 +73,11 @@ fastify.register(swaggerUi, {
 
 fastify.register(routes);
 
+fastify.addHook('onReady', async () => {
+  const trustLevels = require('./lib/trustLevels');
+  await trustLevels.loadFromDb();
+});
+
 fastify.setErrorHandler((err, request, reply) => {
   request.log.error(err);
   const code = err.statusCode || 500;

@@ -31,6 +31,12 @@ const navSections = [
     ],
   },
   {
+    title: 'Trust',
+    items: [
+      { to: 'trust-levels', label: 'Trust Levels' },
+    ],
+  },
+  {
     title: 'System',
     items: [
       { to: 'config', label: 'Settings' },

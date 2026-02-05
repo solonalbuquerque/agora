@@ -15,6 +15,8 @@ const { badRequest, conflict } = require('../lib/errors');
 const { requireStaff, sign, sign2faPending, verify2faPending } = require('../lib/staffAuth');
 const { getTotpSecret, generateSecret, generateOtpauthUrl, verifyToken } = require('../lib/totp');
 const { formatMoney } = require('../lib/money');
+const { getMaxTrustLevel, getAllLevels, loadFromDb } = require('../lib/trustLevels');
+const trustLevelsDb = require('../db/trustLevels');
 
 function staffPreHandler(request, reply, done) {
   const path = request.routerPath || request.url.split('?')[0];
@@ -271,6 +273,55 @@ async function staffRoutes(fastify, opts) {
   });
 
   // --- Staff API (CRUD) ---
+  fastify.get('/api/trust-levels', {
+    schema: { tags: ['Staff'], description: 'List trust level definitions (name, benefits, auto-promotion rules)' },
+  }, async (_request, reply) => {
+    const levels = getAllLevels();
+    return reply.send({ ok: true, data: { rows: levels } });
+  });
+
+  fastify.patch('/api/trust-levels/:level', {
+    schema: {
+      tags: ['Staff'],
+      params: { type: 'object', properties: { level: { type: 'integer', minimum: 0 } } },
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          faucet_daily_limit_cents: { type: 'integer', minimum: 0 },
+          max_transfer_per_tx_cents: { oneOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+          allow_paid_services: { type: 'boolean' },
+          auto_rule_min_calls: { oneOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+          auto_rule_min_success_rate_pct: { oneOf: [{ type: 'number', minimum: 0, maximum: 100 }, { type: 'null' }] },
+          auto_rule_min_account_days: { oneOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+        },
+      },
+      response: { 200: { type: 'object' } },
+    },
+  }, async (request, reply) => {
+    const level = Number(request.params.level);
+    if (!Number.isInteger(level) || level < 0 || level > getMaxTrustLevel()) {
+      return badRequest(reply, `level must be an integer between 0 and ${getMaxTrustLevel()}`);
+    }
+    const body = request.body || {};
+    const existing = await trustLevelsDb.getByLevel(level);
+    if (!existing) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Trust level not found' });
+    const data = {};
+    if (body.name !== undefined) data.name = String(body.name).trim() || existing.name;
+    if (body.faucet_daily_limit_cents !== undefined) data.faucet_daily_limit_cents = Math.max(0, Number(body.faucet_daily_limit_cents));
+    if (body.max_transfer_per_tx_cents !== undefined) {
+      const v = body.max_transfer_per_tx_cents;
+      data.max_transfer_per_tx_cents = (v === null || v === '' || (typeof v === 'number' && isNaN(v))) ? null : Math.max(0, Number(v));
+    }
+    if (body.allow_paid_services !== undefined) data.allow_paid_services = Boolean(body.allow_paid_services);
+    if (body.auto_rule_min_calls !== undefined) data.auto_rule_min_calls = body.auto_rule_min_calls === null || body.auto_rule_min_calls === '' ? null : Math.max(0, Number(body.auto_rule_min_calls));
+    if (body.auto_rule_min_success_rate_pct !== undefined) data.auto_rule_min_success_rate_pct = body.auto_rule_min_success_rate_pct === null || body.auto_rule_min_success_rate_pct === '' ? null : Math.min(100, Math.max(0, Number(body.auto_rule_min_success_rate_pct)));
+    if (body.auto_rule_min_account_days !== undefined) data.auto_rule_min_account_days = body.auto_rule_min_account_days === null || body.auto_rule_min_account_days === '' ? null : Math.max(0, Number(body.auto_rule_min_account_days));
+    const updated = await trustLevelsDb.update(level, data);
+    await loadFromDb();
+    return reply.send({ ok: true, data: updated });
+  });
+
   fastify.get('/api/agents', {
     schema: { tags: ['Staff'], description: 'List agents (paginated)' },
   }, async (request, reply) => {
@@ -311,17 +362,36 @@ async function staffRoutes(fastify, opts) {
     schema: {
       tags: ['Staff'],
       params: { type: 'object', properties: { id: { type: 'string' } } },
-      body: { type: 'object', properties: { status: { type: 'string', enum: ['active', 'limited', 'banned'] } } },
+      body: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', enum: ['active', 'limited', 'banned'] },
+          trust_level: { type: 'integer', minimum: 0 },
+        },
+      },
       response: { 200: { type: 'object' } },
     },
   }, async (request, reply) => {
     const { id } = request.params;
-    const { status } = request.body || {};
-    if (!status || !['active', 'limited', 'banned'].includes(status)) return badRequest(reply, 'status must be active, limited, or banned');
+    const { status, trust_level: trustLevel } = request.body || {};
     const agent = await agentsDb.getById(id);
     if (!agent) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Agent not found' });
-    await agentsDb.updateStatus(id, status);
-    return reply.send({ ok: true, data: { ...agent, status } });
+    const maxLevel = getMaxTrustLevel();
+    if (trustLevel !== undefined) {
+      const n = Number(trustLevel);
+      if (!Number.isInteger(n) || n < 0 || n > maxLevel) {
+        return badRequest(reply, `trust_level must be an integer between 0 and ${maxLevel}`);
+      }
+      await agentsDb.updateTrustLevel(id, n);
+    }
+    if (status !== undefined) {
+      if (!status || !['active', 'limited', 'banned'].includes(status)) {
+        return badRequest(reply, 'status must be active, limited, or banned');
+      }
+      await agentsDb.updateStatus(id, status);
+    }
+    const updated = await agentsDb.getById(id);
+    return reply.send({ ok: true, data: updated });
   });
 
   fastify.get('/api/humans', {
