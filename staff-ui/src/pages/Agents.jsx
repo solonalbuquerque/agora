@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import PageHeader from '../components/PageHeader';
+import SearchFilter from '../components/SearchFilter';
 
 export default function Agents() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState({ rows: [], total: 0 });
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -12,12 +14,17 @@ export default function Agents() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [secret, setSecret] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
   const limit = 20;
 
   const load = () => {
     setLoadError('');
     setLoading(true);
-    return api.agents({ limit, offset: page * limit })
+    const q = { limit, offset: page * limit };
+    if (statusFilter) q.status = statusFilter;
+    if (searchQuery) q.q = searchQuery;
+    return api.agents(q)
       .then((r) => {
         const rows = Array.isArray(r?.data?.rows) ? r.data.rows : [];
         const total = Number(r?.data?.total) || 0;
@@ -34,7 +41,7 @@ export default function Agents() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [page]);
+  useEffect(() => { load(); }, [page, statusFilter, searchQuery]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -59,13 +66,23 @@ export default function Agents() {
     }
   };
 
+  const handleSearch = (q) => {
+    setPage(0);
+    setSearchQuery(q);
+    if (q) {
+      setSearchParams({ q });
+    } else {
+      setSearchParams({});
+    }
+  };
+
   const rows = Array.isArray(data?.rows) ? data.rows : [];
   const total = Number(data?.total) || 0;
 
   return (
     <>
       <PageHeader title="Agents" onReload={load} loading={loading} />
-      <div className="card">
+      <div className="card" style={{ marginBottom: '1rem' }}>
         {!creating ? (
           <button type="button" className="primary" onClick={() => setCreating(true)}>New agent</button>
         ) : (
@@ -83,6 +100,27 @@ export default function Agents() {
             Agent created. ID: {secret.id} — Save the secret (shown once): <code>{secret.secret}</code>
           </p>
         )}
+      </div>
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div>
+            <label>Filter by status</label>
+            <select value={statusFilter} onChange={(e) => { setPage(0); setStatusFilter(e.target.value); }} style={{ maxWidth: '10rem' }}>
+              <option value="">All</option>
+              <option value="active">active</option>
+              <option value="limited">limited</option>
+              <option value="banned">banned</option>
+            </select>
+          </div>
+          <div style={{ flex: 1, minWidth: '250px' }}>
+            <label>Search</label>
+            <SearchFilter
+              value={searchQuery}
+              onChange={handleSearch}
+              placeholder="Search by ID or name..."
+            />
+          </div>
+        </div>
       </div>
       {loadError && <p className="error" style={{ marginBottom: '1rem' }}>{loadError}</p>}
       {loading ? (
@@ -103,9 +141,23 @@ export default function Agents() {
             <tbody>
               {rows.map((a) => (
                 <tr key={a.id}>
-                  <td><code>{a.id}</code></td>
+                  <td>
+                    <Link to={`/agents/${a.id}`} style={{ color: '#a78bfa' }}>
+                      <code>{a.id}</code>
+                    </Link>
+                  </td>
                   <td>{a.name}</td>
-                  <td>{a.status}</td>
+                  <td>
+                    <span style={{
+                      padding: '0.125rem 0.375rem',
+                      borderRadius: '4px',
+                      fontSize: '0.75rem',
+                      backgroundColor: a.status === 'active' ? '#065f46' : a.status === 'banned' ? '#991b1b' : '#92400e',
+                      color: '#fff'
+                    }}>
+                      {a.status}
+                    </span>
+                  </td>
                   <td>{a.trust_level}</td>
                   <td>{a.created_at ? new Date(a.created_at).toLocaleString() : '-'}</td>
                   <td>
@@ -117,7 +169,7 @@ export default function Agents() {
               ))}
             </tbody>
           </table>
-          {rows.length === 0 && !loading && <p className="muted">No agents yet. Create one above.</p>}
+          {rows.length === 0 && !loading && <p className="muted">No agents found.</p>}
           {total > limit && (
             <p style={{ marginTop: '1rem' }}>
               <button type="button" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</button>

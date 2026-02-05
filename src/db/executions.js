@@ -98,7 +98,7 @@ async function listByRequester(requesterAgentId, filters = {}) {
   return { rows: res.rows, total };
 }
 
-/** List all executions (staff). Filters: status, service_id, requester_agent_id, limit, offset. */
+/** List all executions (staff). Filters: status, service_id, requester_agent_id, q, limit, offset. */
 async function listAll(filters = {}) {
   const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 100);
   const offset = Math.max(Number(filters.offset) || 0, 0);
@@ -116,6 +116,11 @@ async function listAll(filters = {}) {
   if (filters.requester_agent_id) {
     params.push(filters.requester_agent_id);
     where += ` AND requester_agent_id = $${i++}`;
+  }
+  if (filters.q) {
+    params.push(`%${filters.q}%`);
+    where += ` AND (uuid::text ILIKE $${i} OR requester_agent_id ILIKE $${i} OR service_id ILIKE $${i})`;
+    i++;
   }
   const countRes = await query(`SELECT COUNT(*)::int AS total FROM executions WHERE ${where}`, params);
   const total = countRes.rows[0]?.total ?? 0;

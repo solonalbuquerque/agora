@@ -45,11 +45,24 @@ async function updateStatus(id, status) {
 async function list(filters = {}) {
   const limit = Math.min(Math.max(Number(filters.limit) || 20, 1), 100);
   const offset = Math.max(Number(filters.offset) || 0, 0);
-  const countRes = await query('SELECT COUNT(*)::int AS total FROM agents', []);
+  let where = '1=1';
+  const params = [];
+  let i = 1;
+  if (filters.status) {
+    params.push(filters.status);
+    where += ` AND status = $${i++}`;
+  }
+  if (filters.q) {
+    params.push(`%${filters.q}%`);
+    where += ` AND (id ILIKE $${i} OR name ILIKE $${i})`;
+    i++;
+  }
+  const countRes = await query(`SELECT COUNT(*)::int AS total FROM agents WHERE ${where}`, params);
   const total = countRes.rows[0]?.total ?? 0;
+  params.push(limit, offset);
   const res = await query(
-    'SELECT id, name, status, trust_level, created_at FROM agents ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-    [limit, offset]
+    `SELECT id, name, status, trust_level, created_at FROM agents WHERE ${where} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
+    params
   );
   return { rows: res.rows, total };
 }

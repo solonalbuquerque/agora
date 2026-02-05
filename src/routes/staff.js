@@ -264,8 +264,8 @@ async function staffRoutes(fastify, opts) {
   fastify.get('/api/agents', {
     schema: { tags: ['Staff'], description: 'List agents (paginated)' },
   }, async (request, reply) => {
-    const { limit, offset } = request.query || {};
-    const result = await agentsDb.list({ limit, offset });
+    const { limit, offset, status, q } = request.query || {};
+    const result = await agentsDb.list({ limit, offset, status, q });
     const rows = Array.isArray(result?.rows) ? result.rows : [];
     const total = Number(result?.total) || 0;
     const response = { ok: true, data: { rows, total } };
@@ -291,7 +291,10 @@ async function staffRoutes(fastify, opts) {
   }, async (request, reply) => {
     const agent = await agentsDb.getById(request.params.id);
     if (!agent) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Agent not found' });
-    return reply.send({ ok: true, data: agent });
+    const response = { ok: true, data: agent };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
   });
 
   fastify.patch('/api/agents/:id', {
@@ -318,9 +321,9 @@ async function staffRoutes(fastify, opts) {
     },
   }, async (request, reply) => {
     try {
-      const { limit, offset, status } = request.query || {};
-      request.log.info({ limit, offset, status }, 'GET /api/humans - calling humansDb.list');
-      const result = await humansDb.list({ limit, offset, status });
+      const { limit, offset, status, q } = request.query || {};
+      request.log.info({ limit, offset, status, q }, 'GET /api/humans - calling humansDb.list');
+      const result = await humansDb.list({ limit, offset, status, q });
       request.log.info({ result, type: typeof result }, 'GET /api/humans - result from humansDb.list');
       
       if (!result || typeof result !== 'object') {
@@ -371,7 +374,10 @@ async function staffRoutes(fastify, opts) {
   }, async (request, reply) => {
     const human = await humansDb.getHumanById(request.params.id);
     if (!human) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Human not found' });
-    return reply.send({ ok: true, data: human });
+    const response = { ok: true, data: human };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
   });
 
   fastify.patch('/api/humans/:id', {
@@ -390,11 +396,18 @@ async function staffRoutes(fastify, opts) {
     return reply.send({ ok: true, data: human });
   });
 
+  fastify.get('/api/humans/:id/agents', {
+    schema: { tags: ['Staff'], description: 'List agents linked to a human' },
+  }, async (request, reply) => {
+    const agents = await humansDb.getAgentsByHumanId(request.params.id);
+    return reply.send({ ok: true, data: { rows: agents } });
+  });
+
   fastify.get('/api/wallets', {
     schema: { tags: ['Staff'], description: 'List wallets (balances)' },
   }, async (request, reply) => {
-    const { limit, offset, agent_id, coin } = request.query || {};
-    const result = await walletsDb.listWallets({ limit, offset, agent_id, coin });
+    const { limit, offset, agent_id, coin, q } = request.query || {};
+    const result = await walletsDb.listWallets({ limit, offset, agent_id, coin, q });
     const rows = Array.isArray(result?.rows) ? result.rows : [];
     const total = Number(result?.total) || 0;
     const response = { ok: true, data: { rows, total } };
@@ -406,8 +419,8 @@ async function staffRoutes(fastify, opts) {
   fastify.get('/api/ledger', {
     schema: { tags: ['Staff'], description: 'List ledger entries' },
   }, async (request, reply) => {
-    const { limit, offset, agent_id, coin, type } = request.query || {};
-    const result = await walletsDb.listLedger({ limit, offset, agent_id, coin, type });
+    const { limit, offset, agent_id, coin, type, q } = request.query || {};
+    const result = await walletsDb.listLedger({ limit, offset, agent_id, coin, type, q });
     const rows = Array.isArray(result?.rows) ? result.rows : [];
     const total = Number(result?.total) || 0;
     const response = { ok: true, data: { rows, total } };
@@ -429,14 +442,36 @@ async function staffRoutes(fastify, opts) {
     return;
   });
 
+  fastify.get('/api/services/:id', {
+    schema: { tags: ['Staff'], description: 'Get service by ID' },
+  }, async (request, reply) => {
+    const service = await servicesDb.getById(request.params.id);
+    if (!service) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Service not found' });
+    const response = { ok: true, data: service };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
+  });
+
   fastify.get('/api/executions', {
     schema: { tags: ['Staff'], description: 'List executions' },
   }, async (request, reply) => {
-    const { limit, offset, status, service_id, requester_agent_id } = request.query || {};
-    const result = await executionsDb.listAll({ limit, offset, status, service_id, requester_agent_id });
+    const { limit, offset, status, service_id, requester_agent_id, q } = request.query || {};
+    const result = await executionsDb.listAll({ limit, offset, status, service_id, requester_agent_id, q });
     const rows = Array.isArray(result?.rows) ? result.rows : [];
     const total = Number(result?.total) || 0;
     const response = { ok: true, data: { rows, total } };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
+  });
+
+  fastify.get('/api/executions/:id', {
+    schema: { tags: ['Staff'], description: 'Get execution by ID' },
+  }, async (request, reply) => {
+    const execution = await executionsDb.getById(request.params.id);
+    if (!execution) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Execution not found' });
+    const response = { ok: true, data: execution };
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
     reply.raw.end(JSON.stringify(response));
     return;

@@ -187,6 +187,11 @@ async function listWallets(filters = {}) {
     params.push(filters.coin);
     where += ` AND coin = $${i++}`;
   }
+  if (filters.q) {
+    params.push(`%${filters.q}%`);
+    where += ` AND (agent_id ILIKE $${i} OR coin ILIKE $${i})`;
+    i++;
+  }
   const countRes = await query(`SELECT COUNT(*)::int AS total FROM wallets WHERE ${where}`, params);
   const total = countRes.rows[0]?.total ?? 0;
   params.push(limit, offset);
@@ -214,6 +219,11 @@ async function listLedger(filters = {}) {
   if (filters.type) {
     params.push(filters.type);
     where += ` AND type = $${i++}`;
+  }
+  if (filters.q) {
+    params.push(`%${filters.q}%`);
+    where += ` AND (agent_id ILIKE $${i} OR uuid::text ILIKE $${i} OR coin ILIKE $${i} OR external_ref ILIKE $${i})`;
+    i++;
   }
   const countRes = await query(`SELECT COUNT(*)::int AS total FROM ledger_entries WHERE ${where}`, params);
   const total = countRes.rows[0]?.total ?? 0;

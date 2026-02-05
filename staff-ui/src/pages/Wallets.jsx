@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import PageHeader from '../components/PageHeader';
+import SearchFilter from '../components/SearchFilter';
 
 export default function Wallets() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState({ rows: [], total: 0 });
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -12,13 +14,18 @@ export default function Wallets() {
   const [mintOpen, setMintOpen] = useState(false);
   const [mintForm, setMintForm] = useState({ agent_id: '', coin: 'AGOTEST', amount_cents: '' });
   const [mintSubmitting, setMintSubmitting] = useState(false);
-  const [mintMessage, setMintMessage] = useState(null); // { type: 'success'|'error', text }
+  const [mintMessage, setMintMessage] = useState(null);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
+  const [agentFilter, setAgentFilter] = useState(searchParams.get('agent_id') || '');
   const limit = 50;
 
   const load = () => {
     setLoadError('');
     setLoading(true);
-    return api.wallets({ limit, offset: page * limit })
+    const q = { limit, offset: page * limit };
+    if (searchQuery) q.q = searchQuery;
+    if (agentFilter) q.agent_id = agentFilter;
+    return api.wallets(q)
       .then((r) => {
         const rows = Array.isArray(r?.data?.rows) ? r.data.rows : [];
         const total = Number(r?.data?.total) || 0;
@@ -35,7 +42,7 @@ export default function Wallets() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [page]);
+  useEffect(() => { load(); }, [page, searchQuery]);
 
   const handleMint = async (e) => {
     e.preventDefault();
@@ -59,13 +66,30 @@ export default function Wallets() {
     }
   };
 
+  const handleSearch = (q) => {
+    setPage(0);
+    setSearchQuery(q);
+    const params = new URLSearchParams();
+    if (agentFilter) params.set('agent_id', agentFilter);
+    if (q) params.set('q', q);
+    setSearchParams(params);
+  };
+
+  const clearAgentFilter = () => {
+    setPage(0);
+    setAgentFilter('');
+    const params = new URLSearchParams();
+    if (searchQuery) params.set('q', searchQuery);
+    setSearchParams(params);
+  };
+
   const rows = Array.isArray(data?.rows) ? data.rows : [];
   const total = Number(data?.total) || 0;
 
   return (
     <>
       <PageHeader title="Balances" onReload={load} loading={loading} />
-      <div className="card">
+      <div className="card" style={{ marginBottom: '1rem' }}>
         {!mintOpen ? (
           <button type="button" className="primary" onClick={() => { setMintOpen(true); setMintMessage(null); }}>Mint (credit)</button>
         ) : (
@@ -92,6 +116,21 @@ export default function Wallets() {
           </p>
         )}
       </div>
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        {agentFilter && (
+          <div style={{ marginBottom: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="muted" style={{ fontSize: '0.75rem' }}>Filtered by agent:</span>
+            <code style={{ fontSize: '0.75rem' }}>{agentFilter}</code>
+            <button type="button" onClick={clearAgentFilter} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}>Clear</button>
+          </div>
+        )}
+        <label>Search</label>
+        <SearchFilter
+          value={searchQuery}
+          onChange={handleSearch}
+          placeholder="Search by agent ID or coin..."
+        />
+      </div>
       {loadError && <p className="error" style={{ marginBottom: '1rem' }}>{loadError}</p>}
       {loading ? (
         <p className="muted">Loading…</p>
@@ -108,14 +147,18 @@ export default function Wallets() {
             <tbody>
               {rows.map((w, i) => (
                 <tr key={`${w.agent_id}-${w.coin}-${i}`}>
-                  <td><code>{w.agent_id}</code></td>
+                  <td>
+                    <Link to={`/agents/${w.agent_id}`} style={{ color: '#a78bfa' }}>
+                      <code>{w.agent_id}</code>
+                    </Link>
+                  </td>
                   <td>{w.coin}</td>
                   <td>{Number(w.balance_cents).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {rows.length === 0 && !loading && <p className="muted">No balances recorded yet. Use Mint to credit an agent.</p>}
+          {rows.length === 0 && !loading && <p className="muted">No balances found.</p>}
           {total > limit && (
             <p style={{ marginTop: '1rem' }}>
               <button type="button" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</button>

@@ -103,6 +103,11 @@ async function list(filters = {}) {
     params.push(filters.status);
     where += ` AND status = $${paramIndex++}`;
   }
+  if (filters.q) {
+    params.push(`%${filters.q}%`);
+    where += ` AND (id::text ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
+    paramIndex++;
+  }
   
   // Count query
   const countRes = await query(`SELECT COUNT(*)::int AS total FROM humans WHERE ${where}`, params);
@@ -120,8 +125,6 @@ async function list(filters = {}) {
   );
   
   const rows = Array.isArray(res?.rows) ? res.rows : [];
-  console.log('[humans.list] Query result:', { rowsCount: rows.length, total, filters, limit, offset });
-  
   return { rows, total };
 }
 
