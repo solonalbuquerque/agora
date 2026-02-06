@@ -117,14 +117,15 @@ async function debit(client, agentId, coin, amountCents, metadata = null, reques
 
 /**
  * Credit an agent's balance (e.g. after execution). Call inside a transaction.
+ * externalRef: optional; when set, idempotency is enforced (call existsLedgerByExternalRef before if needed).
  */
-async function credit(client, agentId, coin, amountCents, metadata = null, requestId = null) {
+async function credit(client, agentId, coin, amountCents, metadata = null, requestId = null, externalRef = null) {
   await ensureWallet(client, agentId, coin);
   await client.query(
     'UPDATE wallets SET balance_cents = balance_cents + $1 WHERE agent_id = $2 AND coin = $3',
     [amountCents, agentId, coin]
   );
-  await insertLedgerEntry(client, agentId, coin, 'credit', amountCents, metadata, null, requestId);
+  await insertLedgerEntry(client, agentId, coin, 'credit', amountCents, metadata, externalRef, requestId);
 }
 
 /**

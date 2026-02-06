@@ -20,6 +20,10 @@ const config = {
   reservedCoin: (process.env.RESERVED_COIN || 'AGO').toString().slice(0, 16).toUpperCase(),
   /** Optional: instance ID for this deployment (used for compliance/manifest). If unset, first instance row is used. */
   instanceId: process.env.INSTANCE_ID || null,
+  /** Optional: instance token (activation token from Center) for polling Central events and crediting agents. */
+  instanceToken: process.env.INSTANCE_TOKEN || process.env.AGORA_INSTANCE_TOKEN || null,
+  /** Secret that the Center sends in X-Central-Secret when calling execute-from-central (must match Center CENTRAL_EXECUTE_SECRET). */
+  agoraCenterExecuteSecret: process.env.AGORA_CENTER_EXECUTE_SECRET || process.env.CENTRAL_EXECUTE_SECRET || null,
   enableFaucet: process.env.ENABLE_FAUCET === 'true',
   humanEmailDevReturnToken: process.env.HUMAN_EMAIL_DEV_RETURN_TOKEN === 'true',
   humanJwtSecret: process.env.HUMAN_JWT_SECRET || '',

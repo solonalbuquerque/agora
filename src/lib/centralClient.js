@@ -127,9 +127,187 @@ async function activateCentral(baseUrl, instanceId, registrationCode, requestId 
   );
 }
 
+/**
+ * GET request to Central with instance auth (X-Instance-Id, X-Instance-Token).
+ * @param {string} baseUrl - AGORA_CENTER_URL
+ * @param {string} instanceId - instance id
+ * @param {string} instanceToken - activation token
+ * @param {string} path - path (e.g. /instances/:id/events)
+ * @param {string} [requestId]
+ * @returns {Promise<object>}
+ */
+async function centralGetWithInstanceAuth(baseUrl, instanceId, instanceToken, path, requestId = null) {
+  if (!baseUrl || !instanceId || !instanceToken) {
+    throw Object.assign(new Error('Central GET with instance auth requires baseUrl, instanceId and instanceToken'), { code: 'BAD_REQUEST' });
+  }
+  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
+  const logCtx = { request_id: requestId, central_url: url, path };
+  logger.log('info', `Central GET ${path}`, logCtx);
+  const headers = {
+    'X-Instance-Id': instanceId,
+    'X-Instance-Token': instanceToken,
+  };
+  let res;
+  try {
+    res = await fetch(url, { method: 'GET', headers });
+  } catch (err) {
+    logger.log('error', 'Central GET failed (network)', { ...logCtx, error: err.message, code: err.code });
+    throw Object.assign(new Error(`Central unreachable: ${err.message}`), { code: 'CENTRAL_NETWORK', cause: err });
+  }
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_) {
+    logger.log('error', 'Central GET response not JSON', { ...logCtx, status: res.status, body_preview: text.slice(0, 200) });
+    throw Object.assign(new Error(`Central returned invalid JSON (${res.status})`), { code: 'CENTRAL_INVALID_RESPONSE', status: res.status });
+  }
+  if (!res.ok) {
+    const msg = data?.message || data?.error || res.statusText || `HTTP ${res.status}`;
+    logger.log('warn', `Central GET error: ${msg}`, { ...logCtx, status: res.status, data: logger.sanitize(data) });
+    const err = new Error(msg);
+    err.code = data?.code || 'CENTRAL_ERROR';
+    err.status = res.status;
+    err.details = data;
+    throw err;
+  }
+  return data;
+}
+
+/**
+ * POST request to Central with instance auth (no body).
+ * @param {string} baseUrl - AGORA_CENTER_URL
+ * @param {string} instanceId - instance id
+ * @param {string} instanceToken - activation token
+ * @param {string} path - path (e.g. /instances/:id/events/:event_id/ack)
+ * @param {string} [requestId]
+ * @returns {Promise<object>}
+ */
+async function centralPostWithInstanceAuth(baseUrl, instanceId, instanceToken, path, requestId = null) {
+  if (!baseUrl || !instanceId || !instanceToken) {
+    throw Object.assign(new Error('Central POST with instance auth requires baseUrl, instanceId and instanceToken'), { code: 'BAD_REQUEST' });
+  }
+  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
+  const logCtx = { request_id: requestId, central_url: url, path };
+  logger.log('info', `Central POST ${path}`, logCtx);
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Instance-Id': instanceId,
+    'X-Instance-Token': instanceToken,
+  };
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', headers, body: '{}' });
+  } catch (err) {
+    logger.log('error', 'Central POST failed (network)', { ...logCtx, error: err.message, code: err.code });
+    throw Object.assign(new Error(`Central unreachable: ${err.message}`), { code: 'CENTRAL_NETWORK', cause: err });
+  }
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_) {
+    logger.log('error', 'Central POST response not JSON', { ...logCtx, status: res.status, body_preview: text.slice(0, 200) });
+    throw Object.assign(new Error(`Central returned invalid JSON (${res.status})`), { code: 'CENTRAL_INVALID_RESPONSE', status: res.status });
+  }
+  if (!res.ok) {
+    const msg = data?.message || data?.error || res.statusText || `HTTP ${res.status}`;
+    logger.log('warn', `Central POST error: ${msg}`, { ...logCtx, status: res.status, data: logger.sanitize(data) });
+    const err = new Error(msg);
+    err.code = data?.code || 'CENTRAL_ERROR';
+    err.status = res.status;
+    err.details = data;
+    throw err;
+  }
+  return data;
+}
+
+/**
+ * Fetch events for this instance from Central (pull). Uses instance auth.
+ * @param {string} baseUrl - AGORA_CENTER_URL
+ * @param {string} instanceId - instance id
+ * @param {string} instanceToken - activation token
+ * @param {{ since_id?: string, limit?: number }} [opts]
+ * @param {string} [requestId]
+ * @returns {Promise<{ events: Array<{ id: string, type: string, payload: object, created_at: string }> }>}
+ */
+async function getCentralEvents(baseUrl, instanceId, instanceToken, opts = null, requestId = null) {
+  const sinceId = opts?.since_id;
+  const limit = Math.min(Number(opts?.limit) || 100, 100);
+  const qs = new URLSearchParams();
+  if (sinceId) qs.set('since_id', sinceId);
+  qs.set('limit', String(limit));
+  const path = `/instances/${encodeURIComponent(instanceId)}/events?${qs.toString()}`;
+  return centralGetWithInstanceAuth(baseUrl, instanceId, instanceToken, path, requestId);
+}
+
+/**
+ * Acknowledge an event to Central (so it can be considered processed).
+ * @param {string} baseUrl - AGORA_CENTER_URL
+ * @param {string} instanceId - instance id
+ * @param {string} instanceToken - activation token
+ * @param {string} eventId - event uuid
+ * @param {string} [requestId]
+ * @returns {Promise<{ acked: boolean }>}
+ */
+async function ackCentralEvent(baseUrl, instanceId, instanceToken, eventId, requestId = null) {
+  const path = `/instances/${encodeURIComponent(instanceId)}/events/${encodeURIComponent(eventId)}/ack`;
+  return centralPostWithInstanceAuth(baseUrl, instanceId, instanceToken, path, requestId);
+}
+
+/**
+ * POST exported services list to Central (sync directory). Uses instance auth.
+ * @param {string} baseUrl - AGORA_CENTER_URL
+ * @param {string} instanceId - instance id
+ * @param {string} instanceToken - activation token
+ * @param {Array<{ service_ref: string, name?: string, description?: string, webhook_url?: string, metadata?: object, price_ago_cents?: number, price_alt_coin?: string, price_alt_cents?: number }>} services
+ * @param {string} [requestId]
+ * @returns {Promise<{ updated: number }>}
+ */
+async function postExportedServices(baseUrl, instanceId, instanceToken, services, requestId = null) {
+  const path = `/instances/${encodeURIComponent(instanceId)}/services/exported`;
+  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
+  const logCtx = { request_id: requestId, central_url: url, path };
+  logger.log('info', `Central POST ${path}`, { ...logCtx, services_count: services?.length ?? 0 });
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Instance-Id': instanceId,
+    'X-Instance-Token': instanceToken,
+  };
+  const body = JSON.stringify({ services: services || [] });
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', headers, body });
+  } catch (err) {
+    logger.log('error', 'Central POST exported services failed (network)', { ...logCtx, error: err.message, code: err.code });
+    throw Object.assign(new Error(`Central unreachable: ${err.message}`), { code: 'CENTRAL_NETWORK', cause: err });
+  }
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_) {
+    logger.log('error', 'Central POST response not JSON', { ...logCtx, status: res.status, body_preview: text.slice(0, 200) });
+    throw Object.assign(new Error(`Central returned invalid JSON (${res.status})`), { code: 'CENTRAL_INVALID_RESPONSE', status: res.status });
+  }
+  if (!res.ok) {
+    const msg = data?.message || data?.error || res.statusText || `HTTP ${res.status}`;
+    logger.log('warn', `Central POST error: ${msg}`, { ...logCtx, status: res.status, data: logger.sanitize(data) });
+    const err = new Error(msg);
+    err.code = data?.code || 'CENTRAL_ERROR';
+    err.status = res.status;
+    err.details = data;
+    throw err;
+  }
+  return data;
+}
+
 module.exports = {
   registerCentralPreregister,
   registerCentral,
   activateCentral,
   centralRequest,
+  getCentralEvents,
+  ackCentralEvent,
+  postExportedServices,
 };

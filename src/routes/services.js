@@ -1,5 +1,6 @@
 'use strict';
 
+const config = require('../config');
 const servicesDb = require('../db/services');
 const walletsDb = require('../db/wallets');
 const agentsDb = require('../db/agents');
@@ -9,11 +10,25 @@ const { formatMoney } = require('../lib/money');
 const { getAllowPaidServices } = require('../lib/trustLevels');
 const compliance = require('../lib/compliance');
 const { recordAuditEvent } = require('../lib/audit');
+const { validateWebhookUrl } = require('../lib/security/webhookValidation');
 
 async function servicesRoutes(fastify, opts) {
   const requireAuth = opts.requireAgentAuth;
   if (!requireAuth) {
     throw new Error('servicesRoutes requires requireAgentAuth');
+  }
+
+  /** PreHandler for execute-from-central: require X-Central-Secret when config.agoraCenterExecuteSecret is set. */
+  function centralExecuteAuth(request, reply, done) {
+    const secret = config.agoraCenterExecuteSecret;
+    if (secret) {
+      const headerSecret = request.headers['x-central-secret'];
+      if (headerSecret !== secret) {
+        const err = Object.assign(new Error('Invalid or missing X-Central-Secret'), { statusCode: 401 });
+        return done(err);
+      }
+    }
+    done();
   }
 
   fastify.post('/', {
@@ -295,6 +310,64 @@ async function servicesRoutes(fastify, opts) {
     const coinCfg = await walletsDb.getCoin(updated.coin);
     const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
     return success(reply, { ...updated, price_formated: formatMoney(updated.price_cents, updated.coin, coinsMap) });
+  });
+
+  fastify.post('/:service_ref/execute-from-central', {
+    preHandler: [centralExecuteAuth],
+    schema: {
+      tags: ['Services'],
+      description: 'Execute a service on behalf of the Central (payment already settled at Center). Requires X-Central-Secret when AGORA_CENTER_EXECUTE_SECRET is set.',
+      params: { type: 'object', properties: { service_ref: { type: 'string' } } },
+      body: {
+        type: 'object',
+        properties: { payload: { type: 'object' } },
+      },
+      response: { 200: { type: 'object' }, 400: { type: 'object' }, 401: { type: 'object' }, 404: { type: 'object' } },
+    },
+  }, async (request, reply) => {
+    const serviceRef = request.params.service_ref;
+    const { payload } = request.body || {};
+    const service = await servicesDb.getById(serviceRef);
+    if (!service) return notFound(reply, 'Service not found');
+    if (service.status !== 'active') return badRequest(reply, 'Service is not active');
+    if (!service.webhook_url) return badRequest(reply, 'Service has no webhook_url');
+
+    const validation = await validateWebhookUrl(service.webhook_url);
+    if (!validation.ok) {
+      return reply.code(400).send({ ok: false, code: 'WEBHOOK_BLOCKED', message: validation.reason || 'Webhook URL not allowed' });
+    }
+
+    const timeoutMs = config.serviceWebhookTimeoutMs || 30000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(service.webhook_url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Central-Order-Id': request.headers['x-central-order-id'] || '',
+          'X-From-Instance-Id': request.headers['x-from-instance-id'] || '',
+          'X-From-Agent-Ref': request.headers['x-from-agent-ref'] || '',
+        },
+        body: JSON.stringify(payload || {}),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      const text = await res.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (_) {
+        data = { raw: text };
+      }
+      return reply.code(res.status).send(data);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        return reply.code(504).send({ ok: false, code: 'WEBHOOK_TIMEOUT', message: 'Service webhook timeout' });
+      }
+      throw err;
+    }
   });
 }
 
