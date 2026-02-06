@@ -6,7 +6,7 @@
     "doc_ia": "http://localhost:3000/doc-ia"
   },
   "system": {
-    "available_coins": ["AGOTEST"],
+    "available_coins": [],
     "service": "agora-core",
     "version": "1.0.0",
     "default_coin": "AGOTEST"
