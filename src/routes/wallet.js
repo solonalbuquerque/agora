@@ -6,6 +6,7 @@ const { success, list } = require('../lib/responses');
 const { badRequest, conflict, forbidden } = require('../lib/errors');
 const { getMaxTransferPerTxCents } = require('../lib/trustLevels');
 const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
+const metrics = require('../lib/metrics');
 
 const rateLimitByAgent = createRateLimitPreHandler({ scope: 'agent', keyPrefix: 'wallet_transfer' });
 
@@ -104,6 +105,7 @@ async function walletRoutes(fastify, opts) {
     }
     try {
       await walletsDb.transfer(fromAgentId, toAgentId, coin, amount);
+      metrics.walletTransfer(coin);
       return success(reply, { from_agent: fromAgentId, to_agent: toAgentId, amount, coin });
     } catch (e) {
       if (e.code === 'INSUFFICIENT_BALANCE') {

@@ -4,6 +4,7 @@ const instanceDb = require('../db/instance');
 const config = require('../config');
 const { created, success } = require('../lib/responses');
 const { badRequest } = require('../lib/errors');
+const { recordAuditEvent } = require('../lib/audit');
 
 function getInstanceToken(request) {
   return request.headers['x-instance-token'] || (request.headers.authorization && request.headers.authorization.replace(/^Bearer\s+/i, ''));
@@ -107,6 +108,14 @@ async function instanceRoutes(fastify) {
     if (!instanceId || !registrationCode || !activationToken) return badRequest(reply, 'instance_id, registration_code, and activation_token are required');
     const inst = await instanceDb.activate(instanceId, registrationCode, activationToken, officialIssuerId);
     if (!inst) return reply.code(400).send({ ok: false, code: 'BAD_REQUEST', message: 'Invalid or expired registration code' });
+    await recordAuditEvent({
+      event_type: 'INSTANCE_ACTIVATE',
+      actor_type: 'system',
+      target_type: 'instance',
+      target_id: inst.id,
+      metadata: { official_issuer_id: officialIssuerId || null },
+      request_id: request.requestId,
+    });
     return success(reply, { instance_id: inst.id, status: inst.status, registered_at: inst.registered_at });
   });
 

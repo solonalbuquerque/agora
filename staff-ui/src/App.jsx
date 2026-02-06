@@ -16,6 +16,7 @@ import ExecutionDetail from './pages/ExecutionDetail';
 import Config from './pages/Config';
 import Statistics from './pages/Statistics';
 import TrustLevels from './pages/TrustLevels';
+import Dashboard from './pages/Dashboard';
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
         <Route path="executions" element={<Executions />} />
         <Route path="executions/:id" element={<ExecutionDetail />} />
         <Route path="trust-levels" element={<TrustLevels />} />
+        <Route path="dashboard" element={<Dashboard />} />
         <Route path="statistics" element={<Statistics />} />
         <Route path="config" element={<Config />} />
       </Route>

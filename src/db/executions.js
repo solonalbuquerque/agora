@@ -15,14 +15,14 @@ function defaultCallbackExpiresAt() {
   return d;
 }
 
-async function create(client, requester_agent_id, service_id, requestPayload, idempotencyKey = null) {
+async function create(client, requester_agent_id, service_id, requestPayload, idempotencyKey = null, requestId = null) {
   const callbackToken = generateCallbackToken();
   const expiresAt = defaultCallbackExpiresAt();
   const res = await client.query(
-    `INSERT INTO executions (uuid, requester_agent_id, service_id, status, request, callback_token, idempotency_key, callback_token_expires_at)
-     VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7)
-     RETURNING id, uuid, requester_agent_id, service_id, status, request, callback_token, callback_token_expires_at, idempotency_key, created_at`,
-    [uuidv4(), requester_agent_id, service_id, requestPayload ? JSON.stringify(requestPayload) : null, callbackToken, idempotencyKey || null, expiresAt]
+    `INSERT INTO executions (uuid, requester_agent_id, service_id, status, request, callback_token, idempotency_key, callback_token_expires_at, request_id)
+     VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8)
+     RETURNING id, uuid, requester_agent_id, service_id, status, request, callback_token, callback_token_expires_at, idempotency_key, created_at, request_id`,
+    [uuidv4(), requester_agent_id, service_id, requestPayload ? JSON.stringify(requestPayload) : null, callbackToken, idempotencyKey || null, expiresAt, requestId || null]
   );
   return res.rows[0];
 }

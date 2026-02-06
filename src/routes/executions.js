@@ -13,6 +13,8 @@ const { validateWebhookUrl } = require('../lib/security/webhookValidation');
 const { recordFailure, recordSuccess } = require('../lib/security/circuitBreaker');
 const { securityLog } = require('../lib/security/securityLog');
 const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
+const metrics = require('../lib/metrics');
+const { recordAuditEvent } = require('../lib/audit');
 const DEFAULT_COIN = 'AGOTEST';
 
 const timeoutMs = config.serviceWebhookTimeoutMs || 30000;
@@ -145,18 +147,20 @@ async function executionsRoutes(fastify, opts) {
     if (existing) {
       request.serviceId = serviceId;
       securityLog(request, 'idempotency_hit', { service_id: serviceId });
+      metrics.executionRecorded(existing.status || 'success', serviceId);
       const row = await executionsDb.getById(existing.id);
       return created(reply, row);
     }
 
+    const requestId = request.requestId || null;
     await withTransaction(async (client) => {
-      executionRow = await executionsDb.create(client, requesterAgentId, serviceId, requestPayload, idempotencyKey);
+      executionRow = await executionsDb.create(client, requesterAgentId, serviceId, requestPayload, idempotencyKey, requestId);
       if (price > 0) {
         await walletsDb.debit(client, requesterAgentId, coin, price, {
           service_id: serviceId,
           type: 'execution',
           execution_uuid: executionRow.uuid,
-        });
+        }, requestId);
       }
     });
 
@@ -164,6 +168,7 @@ async function executionsRoutes(fastify, opts) {
     if (!validation.ok) {
       request.serviceId = serviceId;
       securityLog(request, 'webhook_blocked_ssrf', { reason: validation.reason, service_id: serviceId });
+      metrics.executionRecorded('failed', serviceId);
       const errPayload = { error: 'webhook_blocked_ssrf', message: validation.reason };
       await withTransaction(async (client) => {
         await executionsDb.updateResult(client, executionRow.id, 'failed', errPayload, null);
@@ -191,6 +196,14 @@ async function executionsRoutes(fastify, opts) {
             if (opened) {
               servicesDb.update(serviceId, { status: 'paused' });
               securityLog(request, 'circuit_breaker_triggered', { service_id: serviceId });
+              recordAuditEvent({
+                event_type: 'SERVICE_PAUSED',
+                actor_type: 'system',
+                target_type: 'service',
+                target_id: serviceId,
+                metadata: { reason: 'circuit_breaker' },
+                request_id: request.requestId,
+              }).catch(() => {});
             }
           });
         }
@@ -200,10 +213,19 @@ async function executionsRoutes(fastify, opts) {
         if (opened) {
           await servicesDb.update(serviceId, { status: 'paused' });
           securityLog(request, 'circuit_breaker_triggered', { service_id: serviceId });
+          await recordAuditEvent({
+            event_type: 'SERVICE_PAUSED',
+            actor_type: 'system',
+            target_type: 'service',
+            target_id: serviceId,
+            metadata: { reason: 'circuit_breaker' },
+            request_id: request.requestId,
+          });
         }
       });
 
     await executionsDb.setAwaitingCallback(executionRow.id);
+    metrics.executionRecorded('awaiting_callback', serviceId);
     const row = await executionsDb.getById(executionRow.id);
     return created(reply, row);
   });
@@ -290,21 +312,22 @@ async function executionsRoutes(fastify, opts) {
     const createdAt = execution.created_at ? new Date(execution.created_at).getTime() : Date.now();
     const latencyMs = Math.round(Date.now() - createdAt);
 
+    const requestId = request.requestId || null;
     const updated = await withTransaction(async (client) => {
       const ok = await executionsDb.updateResultIfPending(client, execution.id, status, responsePayload, latencyMs);
       if (!ok) return false;
       if (status === 'success' && price > 0) {
-        await walletsDb.credit(client, service.owner_agent_id, coin, price, { 
-          execution_id: execution.id, 
+        await walletsDb.credit(client, service.owner_agent_id, coin, price, {
+          execution_id: execution.id,
           execution_uuid: execution.uuid,
-          type: 'execution_payment' 
-        });
+          type: 'execution_payment',
+        }, requestId);
       } else if (status === 'failed' && price > 0) {
-        await walletsDb.credit(client, execution.requester_agent_id, coin, price, { 
-          execution_id: execution.id, 
+        await walletsDb.credit(client, execution.requester_agent_id, coin, price, {
+          execution_id: execution.id,
           execution_uuid: execution.uuid,
-          type: 'refund' 
-        });
+          type: 'refund',
+        }, requestId);
       }
       return true;
     });
@@ -312,6 +335,8 @@ async function executionsRoutes(fastify, opts) {
     if (!updated) {
       return notFound(reply, 'Execution not found');
     }
+    metrics.callbackReceived(status);
+    metrics.webhookLatency(execution.service_id, latencyMs);
     return reply.code(200).send({ ok: true, data: responsePayload });
   });
 

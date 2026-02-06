@@ -22,6 +22,8 @@ export const api = {
   logout: () => request('/staff/logout', { method: 'POST' }),
   config: () => request('/staff/api/config'),
   statistics: () => request('/staff/api/statistics'),
+  dashboard: () => request('/staff/api/dashboard'),
+  audit: (q) => request(`/staff/api/audit?${new URLSearchParams(q || {})}`),
   /** Download database backup as ZIP; returns Promise that resolves when download starts */
   downloadBackup: async () => {
     const url = `${BASE}/staff/api/backup`;

@@ -39,12 +39,13 @@ async function ensureCoin(client, coin) {
 /**
  * Insert a ledger entry. If client is provided, use it (transaction); otherwise use pool.
  * externalRef: optional; when set, idempotency is enforced (unique coin+external_ref).
+ * requestId: optional; for request correlation (B2).
  */
-async function insertLedgerEntry(client, agentId, coin, type, amountCents, metadata = null, externalRef = null) {
-  const q = `INSERT INTO ledger_entries (uuid, agent_id, coin, type, amount_cents, metadata, external_ref)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+async function insertLedgerEntry(client, agentId, coin, type, amountCents, metadata = null, externalRef = null, requestId = null) {
+  const q = `INSERT INTO ledger_entries (uuid, agent_id, coin, type, amount_cents, metadata, external_ref, request_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              RETURNING id`;
-  const params = [uuidv4(), agentId, coin, type, amountCents, metadata ? JSON.stringify(metadata) : null, externalRef || null];
+  const params = [uuidv4(), agentId, coin, type, amountCents, metadata ? JSON.stringify(metadata) : null, externalRef || null, requestId || null];
   const res = await (client ? client.query(q, params) : query(q, params));
   return res.rows[0].id;
 }
@@ -91,8 +92,8 @@ async function transfer(fromAgentId, toAgentId, coin, amountCents, metadata = nu
       [amountCents, toAgentId, coin]
     );
     const meta = metadata || {};
-    await insertLedgerEntry(client, fromAgentId, coin, 'debit', amountCents, { ...meta, to_agent_id: toAgentId });
-    await insertLedgerEntry(client, toAgentId, coin, 'credit', amountCents, { ...meta, from_agent_id: fromAgentId });
+    await insertLedgerEntry(client, fromAgentId, coin, 'debit', amountCents, { ...meta, to_agent_id: toAgentId }, null, null);
+    await insertLedgerEntry(client, toAgentId, coin, 'credit', amountCents, { ...meta, from_agent_id: fromAgentId }, null, null);
   });
   return { success: true };
 }
@@ -100,7 +101,7 @@ async function transfer(fromAgentId, toAgentId, coin, amountCents, metadata = nu
 /**
  * Debit an agent's balance (e.g. for execution). Call inside a transaction.
  */
-async function debit(client, agentId, coin, amountCents, metadata = null) {
+async function debit(client, agentId, coin, amountCents, metadata = null, requestId = null) {
   await ensureWallet(client, agentId, coin);
   const res = await client.query(
     'UPDATE wallets SET balance_cents = balance_cents - $1 WHERE agent_id = $2 AND coin = $3 RETURNING balance_cents',
@@ -111,19 +112,19 @@ async function debit(client, agentId, coin, amountCents, metadata = null) {
     err.code = 'INSUFFICIENT_BALANCE';
     throw err;
   }
-  await insertLedgerEntry(client, agentId, coin, 'debit', amountCents, metadata);
+  await insertLedgerEntry(client, agentId, coin, 'debit', amountCents, metadata, null, requestId);
 }
 
 /**
  * Credit an agent's balance (e.g. after execution). Call inside a transaction.
  */
-async function credit(client, agentId, coin, amountCents, metadata = null) {
+async function credit(client, agentId, coin, amountCents, metadata = null, requestId = null) {
   await ensureWallet(client, agentId, coin);
   await client.query(
     'UPDATE wallets SET balance_cents = balance_cents + $1 WHERE agent_id = $2 AND coin = $3',
     [amountCents, agentId, coin]
   );
-  await insertLedgerEntry(client, agentId, coin, 'credit', amountCents, metadata);
+  await insertLedgerEntry(client, agentId, coin, 'credit', amountCents, metadata, null, requestId);
 }
 
 /**

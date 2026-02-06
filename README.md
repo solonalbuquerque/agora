@@ -114,6 +114,9 @@ In **Swagger UI** (`/docs`): use the **AGORA — Auth HMAC** panel at the top: p
 | `SERVICE_WEBHOOK_MAX_BYTES` | 1048576 | Max webhook request/response body size (bytes) |
 | `SERVICE_CB_FAILS` | 5 | Consecutive failures before circuit breaker pauses service |
 | `HMAC_TOLERANCE_SECONDS` | 300 | HMAC timestamp window and replay cache TTL |
+| `ENABLE_METRICS` | false | Enable `GET /metrics` (Prometheus-style) |
+| `EXECUTION_RETENTION_DAYS` | 0 | Delete executions older than N days (0 = keep all; run `npm run cleanup`) |
+| `AUDIT_RETENTION_DAYS` | 0 | Delete audit_events older than N days (0 = keep all) |
 
 ---
 
@@ -282,6 +285,31 @@ curl -X POST http://localhost:3000/instance/activate -H "Content-Type: applicati
 curl -X GET http://localhost:3000/instance/status -H "X-Instance-Token: <activation_token>"
 ```
 
+**Request correlation (B2)**
+
+```bash
+# Send X-Request-Id; same value is returned in response header
+curl -v -X GET http://localhost:3000/health -H "X-Request-Id: 550e8400-e29b-41d4-a716-446655440000"
+# Response includes: X-Request-Id: 550e8400-e29b-41d4-a716-446655440000
+```
+
+**Readiness and metrics**
+
+```bash
+# Readiness (503 if DB/Redis/migrations not ready)
+curl -s http://localhost:3000/ready
+
+# Metrics (Prometheus text; 404 if ENABLE_METRICS=false)
+curl -s http://localhost:3000/metrics
+```
+
+**Admin audit log**
+
+```bash
+curl -s -X GET "http://localhost:3000/admin/audit?limit=10" -H "X-Admin-Token: <ADMIN_TOKEN>"
+# Optional query: actor_type, actor_id, event_type, from_date, to_date, offset
+```
+
 ---
 
 ## Project docs
@@ -414,6 +442,52 @@ The core implements systematic security and anti-abuse measures (B1). All sensit
 ### Security and audit logs
 
 - Structured JSON logs (no secrets, no signatures, no tokens in clear) for: auth failures, rate limit triggered, webhook blocked (SSRF), circuit breaker triggered, idempotency hit, callback replay/expired. Standard fields include **request_id**, **agent_id**, **service_id**, **issuer_id** when applicable.
+
+---
+
+## Observability & Audit (B2)
+
+The core implements request correlation, structured logging, audit events, internal metrics, and health/readiness checks so the runtime is operable in production without depending on external SaaS.
+
+### Request correlation
+
+- Every request gets a **request_id** (UUID): if the client sends `X-Request-Id`, it is reused; otherwise the server generates one.
+- The **request_id** is returned in the response header `X-Request-Id` on all responses.
+- It is included in all structured logs and stored in critical DB records (executions, ledger entries, audit events).
+
+Use `X-Request-Id` in clients to correlate logs and debug across services.
+
+### Logging
+
+- Logs are **structured JSON** with fields: `timestamp`, `level` (info | warn | error), `message`, `request_id`, and optional context (`agent_id`, `human_id`, `service_id`, `issuer_id`, `instance_id`, `execution_id`, `event_type`).
+- Secrets, tokens, and signatures are **never** logged.
+- Helper: `src/lib/logger.js` (`fromRequest(request)` for route handlers).
+
+### Audit events
+
+- **Table:** `audit_events` (event_type, actor_type, actor_id, target_type, target_id, metadata, request_id, created_at).
+- **Recorded automatically** for: `/admin/*` (mint, issuers, service resume), `/issuer/*` credit, `/instance/activate`, agent/human bans (staff), service status changes.
+- **Helper:** `recordAuditEvent(event)` in `src/lib/audit.js`.
+- **Read:** `GET /admin/audit` (admin token) with filters: `actor_type`, `actor_id`, `event_type`, `from_date`, `to_date`, `limit`, `offset`.
+
+### Metrics
+
+- **Endpoint:** `GET /metrics` (Prometheus-style text). Enabled only when `ENABLE_METRICS=true`.
+- **Metrics:** `agora_http_requests_total`, `agora_http_request_duration_ms_bucket`, `agora_execute_total`, `agora_webhook_latency_ms_bucket`, `agora_wallet_transfers_total`, `agora_ledger_balance`, `agora_callbacks_total`.
+- Storage is in-memory (optional Redis not required). No external dependency.
+
+### Health vs readiness
+
+- **`GET /health`** — Liveness: process is alive. Does **not** check DB or Redis. Use for Docker/orchestrator liveness and load balancers.
+- **`GET /ready`** — Readiness: checks Postgres connection, Redis (if configured), and that migrations (e.g. `audit_events`) are applied. Returns **503** if not ready. Use for orchestration readiness probes.
+
+Docker Compose uses `/health` for the API container healthcheck.
+
+### Data retention and cleanup
+
+- **ENV:** `EXECUTION_RETENTION_DAYS`, `AUDIT_RETENTION_DAYS` (0 = do not delete).
+- **Script:** `npm run cleanup` (or `node scripts/cleanup.js`) removes executions and audit_events older than the configured days.
+- **Kept:** Ledger and wallet balances are not removed; only execution log and audit event rows are pruned for retention. Run cleanup periodically (e.g. cron) if retention is set.
 
 ---
 

@@ -5,6 +5,7 @@ const walletsDb = require('../db/wallets');
 const { buildSigningPayload, sha256Hex, isTimestampValid } = require('../lib/auth');
 const { created } = require('../lib/responses');
 const { badRequest, unauthorized, conflict } = require('../lib/errors');
+const { recordAuditEvent } = require('../lib/audit');
 const { query, withTransaction } = require('../db/index');
 
 function requireIssuerSignature() {
@@ -98,6 +99,7 @@ async function issuerRoutes(fastify) {
     const coinNorm = coin.toString().slice(0, 16).toUpperCase();
     const exists = await walletsDb.existsLedgerByExternalRef(null, coinNorm, externalRef);
     if (exists) return conflict(reply, 'external_ref already used (idempotent)');
+    const requestId = request.requestId || null;
     await withTransaction(async (client) => {
       await walletsDb.ensureCoin(client, coinNorm);
       await walletsDb.ensureWallet(client, agentId, coinNorm);
@@ -107,7 +109,16 @@ async function issuerRoutes(fastify) {
       );
       const metadata = { issuer: request.issuerId };
       if (memo) metadata.memo = memo;
-      await walletsDb.insertLedgerEntry(client, agentId, coinNorm, 'credit', amountCents, metadata, externalRef);
+      await walletsDb.insertLedgerEntry(client, agentId, coinNorm, 'credit', amountCents, metadata, externalRef, requestId);
+    });
+    await recordAuditEvent({
+      event_type: 'ISSUER_CREDIT',
+      actor_type: 'issuer',
+      actor_id: request.issuerId,
+      target_type: 'wallet',
+      target_id: agentId,
+      metadata: { coin: coinNorm, amount_cents: amountCents, external_ref: externalRef },
+      request_id: requestId,
     });
     return created(reply, { agent_id: agentId, coin: coinNorm, amount_cents: amountCents, external_ref: externalRef });
   });

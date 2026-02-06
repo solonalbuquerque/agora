@@ -39,6 +39,7 @@ const navSections = [
   {
     title: 'System',
     items: [
+      { to: 'dashboard', label: 'Dashboard' },
       { to: 'statistics', label: 'Statistics' },
       { to: 'config', label: 'Settings' },
     ],
@@ -48,6 +49,7 @@ const navSections = [
 export default function Layout() {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     api.config()
@@ -62,14 +64,29 @@ export default function Layout() {
     api.logout().then(() => navigate('/login', { replace: true }));
   };
 
+  const closeMenu = () => setMenuOpen(false);
+
   if (!ready) return <div className="main">Loading…</div>;
 
   const staffUrl = typeof window !== 'undefined' ? `${window.location.origin}/staff` : '';
 
   return (
     <div className="layout">
-      <aside className="sidebar">
-        <div className="sidebar-header">Staff Panel</div>
+      <button
+        type="button"
+        className="menu-toggle"
+        onClick={() => setMenuOpen((o) => !o)}
+        aria-label="Toggle menu"
+        aria-expanded={menuOpen}
+      >
+        <span className="menu-toggle-icon">☰</span>
+      </button>
+      <div className={`sidebar-overlay ${menuOpen ? 'sidebar-overlay-visible' : ''}`} onClick={closeMenu} aria-hidden="true" />
+      <aside className={`sidebar ${menuOpen ? 'sidebar-open' : ''}`}>
+        <div className="sidebar-header">
+          Staff Panel
+          <button type="button" className="sidebar-close" onClick={closeMenu} aria-label="Close menu">×</button>
+        </div>
         {staffUrl && (
           <div className="sidebar-url" title={staffUrl}>
             <a href={staffUrl} rel="noopener noreferrer">{staffUrl}</a>
@@ -81,7 +98,7 @@ export default function Layout() {
               <div className="nav-section-title">{section.title}</div>
               <div className="nav-section-items">
                 {section.items.map(({ to, label }) => (
-                  <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'active' : '')}>{label}</NavLink>
+                  <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'active' : '')} onClick={closeMenu}>{label}</NavLink>
                 ))}
                 {section.title === 'System' && (
                   <button type="button" onClick={handleLogout} className="nav-logout-btn">Logout</button>

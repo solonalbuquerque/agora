@@ -10,7 +10,28 @@ const routes = require('./routes');
 const { getSwaggerAgoraOptions } = require('./swagger-agora-config');
 const { attachRequestId } = require('./lib/security/securityLog');
 
-fastify.addHook('onRequest', attachRequestId);
+fastify.addHook('onRequest', (request, reply, done) => {
+  attachRequestId(request, reply, () => {
+    request.log = request.log.child({ request_id: request.requestId });
+    done();
+  });
+});
+fastify.addHook('onSend', (request, reply, payload, done) => {
+  if (request.requestId) reply.header('X-Request-Id', request.requestId);
+  done(null, payload);
+});
+
+fastify.addHook('onResponse', (request, reply, done) => {
+  const metrics = require('./lib/metrics');
+  if (metrics.enabled()) {
+    const path = request.routerPath || request.url.split('?')[0];
+    const method = request.method;
+    const status = reply.statusCode;
+    const durationMs = reply.getResponseTime ? reply.getResponseTime() : 0;
+    metrics.httpRequest(method, path, status, durationMs);
+  }
+  done();
+});
 fastify.register(cookie, { secret: config.staffJwtSecret || config.humanJwtSecret || 'cookie-secret' });
 
 // Store raw body for HMAC signature verification (must run before body is parsed)
@@ -50,6 +71,22 @@ fastify.register(swagger, {
       version: '1.0.0',
     },
     servers: [{ url: `http://localhost:${config.port}`, description: 'Local' }],
+    components: {
+      parameters: {
+        XRequestId: {
+          name: 'X-Request-Id',
+          in: 'header',
+          description: 'Optional request correlation ID (UUID). If provided, it is reused; otherwise the server generates one. Returned in response header on all responses.',
+          schema: { type: 'string', format: 'uuid' },
+        },
+      },
+      headers: {
+        XRequestIdResponse: {
+          description: 'Request correlation ID (same as request or generated).',
+          schema: { type: 'string' },
+        },
+      },
+    },
     tags: [
       { name: 'Health', description: 'Health check and documentation' },
       { name: 'Agents', description: 'Agent identity (register, me). HMAC auth on protected routes.' },
@@ -62,6 +99,7 @@ fastify.register(swagger, {
       { name: 'Faucet', description: 'Self-host faucet. Only active when ENABLE_FAUCET=true.' },
       { name: 'Issuer', description: 'Issuer-signed credit. Headers X-Issuer-Id, X-Issuer-Timestamp, X-Issuer-Signature.' },
       { name: 'Instance', description: 'Instance registration and activation. Status with X-Instance-Token or X-Admin-Token.' },
+      { name: 'Observability', description: 'Health, readiness, and metrics (B2).' },
     ],
   },
 });

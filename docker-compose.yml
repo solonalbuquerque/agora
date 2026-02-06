@@ -16,6 +16,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     restart: unless-stopped
 
   postgres:

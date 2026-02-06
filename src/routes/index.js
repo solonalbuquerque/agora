@@ -109,7 +109,7 @@ async function routes(fastify) {
   fastify.get('/health', {
     schema: {
       tags: ['Health'],
-      description: 'Health check for load balancers and Docker.',
+      description: 'Liveness: process is alive. Does NOT check DB or Redis.',
       response: {
         200: {
           type: 'object',
@@ -128,6 +128,95 @@ async function routes(fastify) {
     },
   }, async (_request, reply) => {
     return success(reply, { status: 'ok', service: 'agora-core' });
+  });
+
+  fastify.get('/ready', {
+    schema: {
+      tags: ['Observability'],
+      description: 'Readiness: DB, Redis (if configured), and migrations. Returns 503 if not ready.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                status: { type: 'string' },
+                checks: {
+                  type: 'object',
+                  additionalProperties: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        503: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            code: { type: 'string' },
+            checks: {
+              type: 'object',
+              additionalProperties: { type: 'boolean' },
+            },
+          },
+        },
+      },
+    },
+  }, async (_request, reply) => {
+    const db = require('../db/index');
+    const config = require('../config');
+    const checks = { postgres: false, redis: false, migrations: false };
+    try {
+      await db.query('SELECT 1', []);
+      checks.postgres = true;
+    } catch (_) {}
+    if (config.redisUrl) {
+      try {
+        const redis = require('../lib/redis');
+        const client = await redis.getRedis();
+        if (client) {
+          await client.ping();
+          checks.redis = true;
+        }
+      } catch (_) {}
+    } else {
+      checks.redis = true;
+    }
+    try {
+      const r = await db.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'audit_events'`,
+        []
+      );
+      checks.migrations = r.rows.length > 0;
+    } catch (_) {}
+    const ready = checks.postgres && checks.redis && checks.migrations;
+    if (!ready) {
+      return reply.code(503).send({ ok: false, code: 'NOT_READY', checks });
+    }
+    return reply.send({ ok: true, data: { status: 'ready', checks } });
+  });
+
+  fastify.get('/metrics', {
+    schema: {
+      tags: ['Observability'],
+      description: 'Prometheus-style metrics (when ENABLE_METRICS=true).',
+    },
+  }, async (_request, reply) => {
+    const config = require('../config');
+    if (!config.enableMetrics) {
+      return reply.code(404).send({ ok: false, code: 'DISABLED', message: 'Metrics disabled' });
+    }
+    const metrics = require('../lib/metrics');
+    const db = require('../db/index');
+    let ledgerBalances = {};
+    try {
+      const res = await db.query('SELECT coin, COALESCE(SUM(balance_cents), 0)::bigint AS total FROM wallets GROUP BY coin', []);
+      res.rows.forEach((r) => { ledgerBalances[r.coin] = Number(r.total); });
+    } catch (_) {}
+    const body = metrics.exportPrometheus(ledgerBalances);
+    return reply.header('Content-Type', 'text/plain; charset=utf-8').send(body);
   });
 
   fastify.register(require('./agents'), { prefix: '/agents', requireAgentAuth: requireAuth });

@@ -37,6 +37,11 @@ const config = {
 
   // B1.5 HMAC replay protection
   hmacToleranceSeconds: Number(process.env.HMAC_TOLERANCE_SECONDS) || 300, // 5 min
+
+  // B2 Observability
+  enableMetrics: process.env.ENABLE_METRICS === 'true',
+  executionRetentionDays: Number(process.env.EXECUTION_RETENTION_DAYS) || 0,
+  auditRetentionDays: Number(process.env.AUDIT_RETENTION_DAYS) || 0,
 };
 
 module.exports = config;

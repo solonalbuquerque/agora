@@ -19,6 +19,8 @@ const { formatMoney } = require('../lib/money');
 const { getMaxTrustLevel, getAllLevels, loadFromDb } = require('../lib/trustLevels');
 const trustLevelsDb = require('../db/trustLevels');
 const statsDb = require('../db/stats');
+const auditDb = require('../db/audit');
+const { recordAuditEvent } = require('../lib/audit');
 
 function staffPreHandler(request, reply, done) {
   const path = request.routerPath || request.url.split('?')[0];
@@ -197,11 +199,20 @@ async function staffRoutes(fastify, opts) {
         'UPDATE wallets SET balance_cents = balance_cents + $1 WHERE agent_id = $2 AND coin = $3',
         [amountCents, agentId, coinNorm]
       );
+      const requestId = request.requestId || null;
       const metadata = reason ? { reason, staff: true } : { staff: true };
-      const q = `INSERT INTO ledger_entries (uuid, agent_id, coin, type, amount_cents, metadata, external_ref)
-                 VALUES (gen_random_uuid(), $1, $2, 'credit', $3, $4, $5) RETURNING id`;
-      const r = await client.query(q, [agentId, coinNorm, amountCents, JSON.stringify(metadata), externalRef || null]);
+      const q = `INSERT INTO ledger_entries (uuid, agent_id, coin, type, amount_cents, metadata, external_ref, request_id)
+                 VALUES (gen_random_uuid(), $1, $2, 'credit', $3, $4, $5, $6) RETURNING id`;
+      const r = await client.query(q, [agentId, coinNorm, amountCents, JSON.stringify(metadata), externalRef || null, requestId]);
       ledgerId = r.rows[0].id;
+    });
+    await recordAuditEvent({
+      event_type: 'STAFF_MINT',
+      actor_type: 'admin',
+      target_type: 'wallet',
+      target_id: agentId,
+      metadata: { coin: coinNorm, amount_cents: amountCents, ledger_id: ledgerId },
+      request_id: request.requestId,
     });
     return created(reply, {
       agent_id: agentId,
@@ -229,6 +240,14 @@ async function staffRoutes(fastify, opts) {
     const { name, secret } = request.body || {};
     if (!name || !secret) return badRequest(reply, 'name and secret are required');
     const issuer = await issuersDb.createIssuer(name, secret, true);
+    await recordAuditEvent({
+      event_type: 'STAFF_ISSUER_CREATE',
+      actor_type: 'admin',
+      target_type: 'issuer',
+      target_id: issuer.id,
+      metadata: { name: issuer.name },
+      request_id: request.requestId,
+    });
     return created(reply, { id: issuer.id, name: issuer.name, status: issuer.status });
   });
 
@@ -241,6 +260,13 @@ async function staffRoutes(fastify, opts) {
   }, async (request, reply) => {
     const issuer = await issuersDb.revoke(request.params.id);
     if (!issuer) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Issuer not found' });
+    await recordAuditEvent({
+      event_type: 'STAFF_ISSUER_REVOKE',
+      actor_type: 'admin',
+      target_type: 'issuer',
+      target_id: issuer.id,
+      request_id: request.requestId,
+    });
     return success(reply, issuer);
   });
 
@@ -391,6 +417,15 @@ async function staffRoutes(fastify, opts) {
         return badRequest(reply, 'status must be active, limited, or banned');
       }
       await agentsDb.updateStatus(id, status);
+      if (status === 'banned') {
+        await recordAuditEvent({
+          event_type: 'AGENT_BAN',
+          actor_type: 'admin',
+          target_type: 'agent',
+          target_id: id,
+          request_id: request.requestId,
+        });
+      }
     }
     const updated = await agentsDb.getById(id);
     return reply.send({ ok: true, data: updated });
@@ -475,6 +510,15 @@ async function staffRoutes(fastify, opts) {
     if (!status || !['pending', 'verified', 'banned'].includes(status)) return badRequest(reply, 'status must be pending, verified, or banned');
     const human = await humansDb.updateStatus(id, status);
     if (!human) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Human not found' });
+    if (status === 'banned') {
+      await recordAuditEvent({
+        event_type: 'HUMAN_BAN',
+        actor_type: 'admin',
+        target_type: 'human',
+        target_id: id,
+        request_id: request.requestId,
+      });
+    }
     return reply.send({ ok: true, data: human });
   });
 
@@ -611,6 +655,66 @@ async function staffRoutes(fastify, opts) {
   }, async (_request, reply) => {
     const data = await statsDb.getStatistics();
     const response = { ok: true, data };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
+  });
+
+  fastify.get('/api/dashboard', {
+    schema: { tags: ['Staff'], description: 'Operational dashboard: executions last 24h, error rate, paused services, recent ledger, recent audit' },
+  }, async (_request, reply) => {
+    const [executions24hRes, errorRateRes, pausedRes, recentLedgerRes, recentAuditRes] = await Promise.all([
+      query(`SELECT status, COUNT(*)::int AS cnt FROM executions WHERE created_at >= NOW() - INTERVAL '24 hours' GROUP BY status`, []),
+      query(`SELECT COUNT(*) FILTER (WHERE status = 'failed')::int AS failed, COUNT(*)::int AS total FROM executions WHERE created_at >= NOW() - INTERVAL '24 hours'`, []),
+      query(`SELECT COUNT(*)::int AS n FROM services WHERE status = 'paused'`, []),
+      walletsDb.listLedger({ limit: 10, offset: 0 }),
+      auditDb.list({ limit: 15, offset: 0 }),
+    ]);
+    const byStatus = {};
+    (executions24hRes.rows || []).forEach((r) => { byStatus[r.status] = r.cnt; });
+    const failed = errorRateRes.rows[0]?.failed ?? 0;
+    const total = errorRateRes.rows[0]?.total ?? 0;
+    const error_rate_pct = total > 0 ? Number((100 * failed / total).toFixed(1)) : 0;
+    const paused_services = Number(pausedRes.rows[0]?.n ?? 0);
+    const recent_ledger = (recentLedgerRes.rows || []).map((r) => ({
+      id: r.id,
+      agent_id: r.agent_id,
+      coin: r.coin,
+      type: r.type,
+      amount_cents: r.amount_cents,
+      created_at: r.created_at,
+    }));
+    const recent_audit = (recentAuditRes.rows || []).map((r) => ({
+      id: r.id,
+      event_type: r.event_type,
+      actor_type: r.actor_type,
+      actor_id: r.actor_id,
+      target_type: r.target_type,
+      target_id: r.target_id,
+      created_at: r.created_at,
+    }));
+    const response = {
+      ok: true,
+      data: {
+        executions_last_24h: byStatus,
+        executions_total_24h: total,
+        error_rate_pct: error_rate_pct,
+        paused_services_count: paused_services,
+        recent_ledger: recent_ledger,
+        recent_audit: recent_audit,
+      },
+    };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
+  });
+
+  fastify.get('/api/audit', {
+    schema: { tags: ['Staff'], description: 'List audit events (same filters as admin/audit)' },
+  }, async (request, reply) => {
+    const { actor_type, actor_id, event_type, from_date, to_date, limit, offset } = request.query || {};
+    const result = await auditDb.list({ actor_type, actor_id, event_type, from_date, to_date, limit, offset });
+    const response = { ok: true, data: { rows: result.rows, total: result.total } };
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
     reply.raw.end(JSON.stringify(response));
     return;

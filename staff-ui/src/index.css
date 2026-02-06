@@ -9,9 +9,24 @@ button.primary { background: #7c3aed; border-color: #7c3aed; }
 button.primary:hover { background: #6d28d9; }
 input, select { background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7; padding: 0.5rem; border-radius: 6px; width: 100%; max-width: 20rem; }
 label { display: block; margin-bottom: 0.25rem; color: #a1a1aa; font-size: 0.875rem; }
-.layout { display: flex; min-height: 100vh; }
-.sidebar { width: 14rem; background: #18181b; padding: 0; border-right: 1px solid #27272a; display: flex; flex-direction: column; }
-.sidebar-header { padding: 1rem 1rem 0.75rem; font-weight: 700; font-size: 1.1rem; color: #a78bfa; border-bottom: 1px solid #27272a; }
+.layout { display: flex; min-height: 100vh; position: relative; }
+.sidebar { width: 14rem; min-width: 14rem; background: #18181b; padding: 0; border-right: 1px solid #27272a; display: flex; flex-direction: column; flex-shrink: 0; }
+.sidebar-header { padding: 1rem 1rem 0.75rem; font-weight: 700; font-size: 1.1rem; color: #a78bfa; border-bottom: 1px solid #27272a; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.sidebar-close { display: none; background: transparent; border: none; color: #71717a; font-size: 1.5rem; line-height: 1; padding: 0 0.25rem; cursor: pointer; }
+.sidebar-close:hover { color: #e4e4e7; }
+.menu-toggle { display: none; position: fixed; top: 0.75rem; left: 0.75rem; z-index: 100; background: #18181b; border: 1px solid #27272a; color: #a78bfa; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 1.25rem; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+.menu-toggle:hover { background: #27272a; color: #c4b5fd; }
+.menu-toggle-icon { display: block; line-height: 1; }
+.sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 98; }
+@media (max-width: 768px) {
+  .menu-toggle { display: block; }
+  .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 99; transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: 4px 0 20px rgba(0,0,0,0.4); }
+  .sidebar.sidebar-open { transform: translateX(0); }
+  .sidebar-close { display: block; }
+  .sidebar-overlay { display: block; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+  .sidebar-overlay.sidebar-overlay-visible { pointer-events: auto; opacity: 1; }
+  .main { margin-left: 0; padding-top: 3rem; }
+}
 .sidebar-url { padding: 0.5rem 1rem; border-bottom: 1px solid #27272a; font-size: 0.7rem; word-break: break-all; }
 .sidebar-url a { color: #71717a; text-decoration: none; }
 .sidebar-url a:hover { color: #a1a1aa; text-decoration: underline; }

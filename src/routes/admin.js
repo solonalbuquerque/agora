@@ -8,6 +8,7 @@ const servicesDb = require('../db/services');
 const { created, success } = require('../lib/responses');
 const { badRequest, unauthorized, forbidden, conflict, notFound } = require('../lib/errors');
 const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
+const { recordAuditEvent } = require('../lib/audit');
 
 function requireAdmin(request, reply, done) {
   const token = request.headers['x-admin-token'];
@@ -86,10 +87,20 @@ async function adminRoutes(fastify) {
         [amountCents, agentId, coinNorm]
       );
       const metadata = reason ? { reason, admin: true } : { admin: true };
-      const q = `INSERT INTO ledger_entries (uuid, agent_id, coin, type, amount_cents, metadata, external_ref)
-                 VALUES (gen_random_uuid(), $1, $2, 'credit', $3, $4, $5) RETURNING id`;
-      const r = await client.query(q, [agentId, coinNorm, amountCents, JSON.stringify(metadata), externalRef || null]);
+      const requestId = request.requestId || null;
+      const q = `INSERT INTO ledger_entries (uuid, agent_id, coin, type, amount_cents, metadata, external_ref, request_id)
+                 VALUES (gen_random_uuid(), $1, $2, 'credit', $3, $4, $5, $6) RETURNING id`;
+      const r = await client.query(q, [agentId, coinNorm, amountCents, JSON.stringify(metadata), externalRef || null, requestId]);
       ledgerId = r.rows[0].id;
+    });
+    await recordAuditEvent({
+      event_type: 'ADMIN_MINT',
+      actor_type: 'admin',
+      actor_id: null,
+      target_type: 'wallet',
+      target_id: agentId,
+      metadata: { coin: coinNorm, amount_cents: amountCents, ledger_id: ledgerId },
+      request_id: request.requestId,
     });
     return created(reply, {
       agent_id: agentId,
@@ -117,6 +128,14 @@ async function adminRoutes(fastify) {
     const { name, secret } = request.body || {};
     if (!name || !secret) return badRequest(reply, 'name and secret are required');
     const issuer = await issuersDb.createIssuer(name, secret, true);
+    await recordAuditEvent({
+      event_type: 'ADMIN_ISSUER_CREATE',
+      actor_type: 'admin',
+      target_type: 'issuer',
+      target_id: issuer.id,
+      metadata: { name: issuer.name },
+      request_id: request.requestId,
+    });
     return created(reply, { id: issuer.id, name: issuer.name, status: issuer.status });
   });
 
@@ -129,6 +148,13 @@ async function adminRoutes(fastify) {
   }, async (request, reply) => {
     const issuer = await issuersDb.revoke(request.params.id);
     if (!issuer) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Issuer not found' });
+    await recordAuditEvent({
+      event_type: 'ADMIN_ISSUER_REVOKE',
+      actor_type: 'admin',
+      target_type: 'issuer',
+      target_id: issuer.id,
+      request_id: request.requestId,
+    });
     return success(reply, issuer);
   });
 
@@ -147,7 +173,60 @@ async function adminRoutes(fastify) {
     const service = await servicesDb.getById(serviceId);
     if (!service) return notFound(reply, 'Service not found');
     const updated = await servicesDb.update(serviceId, { status: 'active' });
+    await recordAuditEvent({
+      event_type: 'SERVICE_RESUMED',
+      actor_type: 'admin',
+      target_type: 'service',
+      target_id: serviceId,
+      request_id: request.requestId,
+    });
     return success(reply, updated);
+  });
+
+  fastify.get('/audit', {
+    schema: {
+      tags: ['Admin'],
+      description: 'List audit events. Filters: actor_type, actor_id, event_type, from_date, to_date, limit, offset.',
+      querystring: {
+        type: 'object',
+        properties: {
+          actor_type: { type: 'string', enum: ['human', 'admin', 'issuer', 'system'] },
+          actor_id: { type: 'string' },
+          event_type: { type: 'string' },
+          from_date: { type: 'string', format: 'date-time' },
+          to_date: { type: 'string', format: 'date-time' },
+          limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
+          offset: { type: 'integer', minimum: 0, default: 0 },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                rows: { type: 'array', items: { type: 'object' } },
+                total: { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const auditDb = require('../db/audit');
+    const { rows, total } = await auditDb.list({
+      actor_type: request.query?.actor_type,
+      actor_id: request.query?.actor_id,
+      event_type: request.query?.event_type,
+      from_date: request.query?.from_date,
+      to_date: request.query?.to_date,
+      limit: request.query?.limit,
+      offset: request.query?.offset,
+    });
+    return reply.send({ ok: true, data: { rows, total } });
   });
 }
 
