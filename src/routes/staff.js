@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const archiver = require('archiver');
 const config = require('../config');
 const { query, withTransaction } = require('../db/index');
 const agentsDb = require('../db/agents');
@@ -17,6 +18,7 @@ const { getTotpSecret, generateSecret, generateOtpauthUrl, verifyToken } = requi
 const { formatMoney } = require('../lib/money');
 const { getMaxTrustLevel, getAllLevels, loadFromDb } = require('../lib/trustLevels');
 const trustLevelsDb = require('../db/trustLevels');
+const statsDb = require('../db/stats');
 
 function staffPreHandler(request, reply, done) {
   const path = request.routerPath || request.url.split('?')[0];
@@ -590,7 +592,7 @@ async function staffRoutes(fastify, opts) {
   fastify.get('/api/config', {
     schema: { tags: ['Staff'], description: 'Read-only config (safe flags)', response: { 200: { type: 'object' } } },
   }, async (_request, reply) => {
-    return reply.send({
+    const response = {
       ok: true,
       data: {
         defaultCoin: config.defaultCoin,
@@ -598,7 +600,60 @@ async function staffRoutes(fastify, opts) {
         staff2faEnabled: config.staff2faEnabled,
         staff2faForced: config.staff2faForced,
       },
+    };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
+  });
+
+  fastify.get('/api/statistics', {
+    schema: { tags: ['Staff'], description: 'System statistics: totals, last 24h, % vs yesterday, DB sizes', response: { 200: { type: 'object' } } },
+  }, async (_request, reply) => {
+    const data = await statsDb.getStatistics();
+    const response = { ok: true, data };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
+  });
+
+  fastify.get('/api/backup', {
+    schema: { tags: ['Staff'], description: 'Full database dump as ZIP (one JSON file per table)' },
+  }, async (request, reply) => {
+    function quoteIdent(name) {
+      return '"' + String(name).replace(/"/g, '""') + '"';
+    }
+    let tables;
+    try {
+      const res = await query(`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`, []);
+      tables = (res.rows || []).map((r) => r.tablename);
+    } catch (err) {
+      request.log.error(err);
+      return reply.code(500).send({ ok: false, code: 'BACKUP_ERROR', message: 'Failed to list tables' });
+    }
+    const date = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '-').replace(/-(\d{2})-(\d{2})$/, '-$1$2');
+    const filename = `agora-backup-${date}.zip`;
+    reply.raw.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${filename}"`,
     });
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => {
+      request.log.error(err);
+      try { reply.raw.destroy(); } catch (_) {}
+    });
+    archive.pipe(reply.raw);
+    for (const table of tables) {
+      try {
+        const q = await query(`SELECT * FROM ${quoteIdent(table)}`, []);
+        const rows = q.rows || [];
+        archive.append(JSON.stringify(rows, null, 2), { name: `${table}.json` });
+      } catch (err) {
+        request.log.error(err);
+        archive.append(JSON.stringify({ error: err.message }), { name: `${table}.json.err` });
+      }
+    }
+    await archive.finalize();
+    return;
   });
 
   fastify.get('/api/issuers', {

@@ -129,15 +129,18 @@ The `/staff` route provides a web-based administration interface for managing th
 - **Settings** — Platform configuration and 2FA setup
 - **Mint** — Credit balance to agents (admin mint)
 
-### Development Mode
+### Development Mode (with Staff hot reload)
 
-For hot-reload during development, use:
+For hot-reload of both the API and the Staff UI:
 
 ```bash
 npm run docker:dev
 ```
 
-This starts the API with nodemon and the Staff UI with Vite HMR at `http://localhost:5173/staff/`.
+- **API:** `http://localhost:3000` (nodemon restarts on `src/` changes).
+- **Staff UI (hot reload):** `http://localhost:5173/staff/` — use this URL to edit `staff-ui/src` and see changes without rebuilding. The Vite dev server proxies API calls to the API container.
+
+If you use `http://localhost:3000/staff/` you get the pre-built UI from `staff-ui/dist` (no hot reload; run `npm run build:staff` to update).
 
 ---
 

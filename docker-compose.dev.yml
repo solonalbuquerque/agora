@@ -1,5 +1,8 @@
-# Override para desenvolvimento: API com nodemon + Staff UI com Vite (autoreload)
-# Uso: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Override para desenvolvimento: API com nodemon + Staff UI com Vite (hot reload)
+# Uso: npm run docker:dev  (ou docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build)
+#
+# API:        http://localhost:3000
+# Staff UI (hot reload): http://localhost:5173/staff/  <- use esta URL para ver mudanças no Staff sem rebuild
 
 services:
   api:
@@ -8,7 +11,6 @@ services:
       target: dev
     ports:
       - "3000:3000"
-    # Entrypoint dev: migração uma vez + nodemon (inline evita CRLF do Windows)
     entrypoint: []
     command:
       - sh
@@ -20,7 +22,10 @@ services:
           touch /tmp/.migrations-done
           echo "Migrations completed."
         fi
-        echo "Starting API with nodemon..."
+        echo ""
+        echo ">>> Staff UI with HOT RELOAD: http://localhost:5173/staff/"
+        echo ">>> API: http://localhost:3000"
+        echo ""
         exec npx nodemon src/server.js
     volumes:
       - ./src:/app/src
@@ -28,7 +33,6 @@ services:
       - ./migrations:/app/migrations
       - ./nodemon.json:/app/nodemon.json
       - ./.env:/app/.env
-      # Staff UI build: API em :3000/staff serve os arquivos de staff-ui/dist
       - ./staff-ui/dist:/app/staff-ui/dist
 
   staff:
@@ -43,10 +47,10 @@ services:
       - staff_node_modules:/app/node_modules
     command: >
       sh -c "
-        echo 'Installing dependencies...' &&
-        npm install &&
-        echo 'Starting Vite dev server...' &&
-        npm run dev -- --host 0.0.0.0 --port 5173
+        echo 'Installing staff-ui dependencies (skip if already up to date)...'
+        npm install
+        echo 'Starting Vite — Staff UI with hot reload at http://localhost:5173/staff/'
+        exec npm run dev -- --host 0.0.0.0 --port 5173
       "
     depends_on:
       - api

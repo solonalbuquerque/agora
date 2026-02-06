@@ -39,6 +39,7 @@ const navSections = [
   {
     title: 'System',
     items: [
+      { to: 'statistics', label: 'Statistics' },
       { to: 'config', label: 'Settings' },
     ],
   },
@@ -63,10 +64,17 @@ export default function Layout() {
 
   if (!ready) return <div className="main">Loading…</div>;
 
+  const staffUrl = typeof window !== 'undefined' ? `${window.location.origin}/staff` : '';
+
   return (
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar-header">Staff Panel</div>
+        {staffUrl && (
+          <div className="sidebar-url" title={staffUrl}>
+            <a href={staffUrl} rel="noopener noreferrer">{staffUrl}</a>
+          </div>
+        )}
         <nav className="sidebar-nav">
           {navSections.map((section) => (
             <div key={section.title} className="nav-section">

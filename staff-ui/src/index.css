@@ -12,6 +12,9 @@ label { display: block; margin-bottom: 0.25rem; color: #a1a1aa; font-size: 0.875
 .layout { display: flex; min-height: 100vh; }
 .sidebar { width: 14rem; background: #18181b; padding: 0; border-right: 1px solid #27272a; display: flex; flex-direction: column; }
 .sidebar-header { padding: 1rem 1rem 0.75rem; font-weight: 700; font-size: 1.1rem; color: #a78bfa; border-bottom: 1px solid #27272a; }
+.sidebar-url { padding: 0.5rem 1rem; border-bottom: 1px solid #27272a; font-size: 0.7rem; word-break: break-all; }
+.sidebar-url a { color: #71717a; text-decoration: none; }
+.sidebar-url a:hover { color: #a1a1aa; text-decoration: underline; }
 .sidebar-nav { flex: 1; overflow-y: auto; padding: 0.5rem 0; }
 .nav-section { margin-bottom: 0.5rem; }
 .nav-section-title { 

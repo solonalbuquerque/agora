@@ -21,6 +21,29 @@ export const api = {
   login2fa: (code) => request('/staff/login/2fa', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) }),
   logout: () => request('/staff/logout', { method: 'POST' }),
   config: () => request('/staff/api/config'),
+  statistics: () => request('/staff/api/statistics'),
+  /** Download database backup as ZIP; returns Promise that resolves when download starts */
+  downloadBackup: async () => {
+    const url = `${BASE}/staff/api/backup`;
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) {
+      const text = await res.text();
+      let err = { status: res.status };
+      try { err = { ...err, ...JSON.parse(text) }; } catch (_) {}
+      throw err;
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition');
+    const match = disposition && disposition.match(/filename="?([^";]+)"?/);
+    const filename = match ? match[1].trim() : `agora-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  },
   agents: (q) => request(`/staff/api/agents?${new URLSearchParams(q || {})}`),
   createAgent: (name) => request('/staff/api/agents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }),
   getAgent: (id) => request(`/staff/api/agents/${id}`),
