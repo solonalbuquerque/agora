@@ -107,6 +107,8 @@ export default function Services() {
                 <th>Price</th>
                 <th>Coin</th>
                 <th>Status</th>
+                <th>Visibility</th>
+                <th>Export status</th>
                 <th>Circuit breaker</th>
                 <th>Webhook health</th>
                 <th>Created</th>
@@ -139,6 +141,8 @@ export default function Services() {
                       {s.status}
                     </span>
                   </td>
+                  <td>{s.visibility ?? 'local'}</td>
+                  <td>{s.export_status ?? '-'}</td>
                   <td>{s.circuit_breaker_state ?? '-'}</td>
                   <td>{s.webhook_health ?? '-'}</td>
                   <td>{s.created_at ? new Date(s.created_at).toLocaleString() : '-'}</td>

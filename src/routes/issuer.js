@@ -7,6 +7,7 @@ const { created } = require('../lib/responses');
 const { badRequest, unauthorized, conflict } = require('../lib/errors');
 const { recordAuditEvent } = require('../lib/audit');
 const { query, withTransaction } = require('../db/index');
+const compliance = require('../lib/compliance');
 
 function requireIssuerSignature() {
   return async function preHandler(request, reply) {
@@ -88,18 +89,61 @@ async function issuerRoutes(fastify) {
     },
   }, async (request, reply) => {
     const { agent_id: agentId, coin, amount_cents: amountCents, external_ref: externalRef, memo } = request.body || {};
-    if (!agentId || !coin || amountCents == null || amountCents < 1 || !externalRef) {
-      return badRequest(reply, 'agent_id, coin, amount_cents, and external_ref are required');
+    if (!agentId || !coin || amountCents == null || amountCents < 1) {
+      return badRequest(reply, 'agent_id, coin, and amount_cents are required');
     }
-    // Verificar se o agent existe antes de tentar criar a wallet
+    const coinNorm = coin.toString().slice(0, 16).toUpperCase();
+    const isAgo = compliance.isReservedCoin(coinNorm);
+
+    if (isAgo) {
+      if (!externalRef) {
+        return badRequest(reply, 'external_ref is required for AGO credits (idempotency)');
+      }
+      const allowed = await compliance.requireCompliantForAgoInbound(reply);
+      if (!allowed) {
+        await recordAuditEvent({
+          event_type: 'ISSUER_CREDIT_REJECTED',
+          actor_type: 'issuer',
+          actor_id: request.issuerId,
+          target_type: 'wallet',
+          target_id: agentId,
+          metadata: { coin: coinNorm, amount_cents: amountCents, reason: 'INSTANCE_NOT_COMPLIANT' },
+          request_id: request.requestId,
+        });
+        return;
+      }
+      const inst = await compliance.getCurrentInstance();
+      const issuer = await issuersDb.getById(request.issuerId);
+      const isCentral = issuer && issuer.is_central === true;
+      const isOfficial = inst && inst.official_issuer_id && String(inst.official_issuer_id) === String(request.issuerId);
+      if (!isCentral && !isOfficial) {
+        await recordAuditEvent({
+          event_type: 'ISSUER_CREDIT_REJECTED',
+          actor_type: 'issuer',
+          actor_id: request.issuerId,
+          target_type: 'wallet',
+          target_id: agentId,
+          metadata: { coin: coinNorm, reason: 'ISSUER_NOT_ALLOWED_FOR_AGO' },
+          request_id: request.requestId,
+        });
+        return reply.code(403).send({
+          ok: false,
+          code: 'FORBIDDEN',
+          message: 'Only the Central issuer or this instance official issuer can credit AGO.',
+        });
+      }
+    } else if (!externalRef) {
+      return badRequest(reply, 'external_ref is required');
+    }
+
     const agentCheck = await query('SELECT id FROM agents WHERE id = $1', [agentId]);
     if (agentCheck.rows.length === 0) {
       return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: `Agent ${agentId} not found` });
     }
-    const coinNorm = coin.toString().slice(0, 16).toUpperCase();
     const exists = await walletsDb.existsLedgerByExternalRef(null, coinNorm, externalRef);
     if (exists) return conflict(reply, 'external_ref already used (idempotent)');
     const requestId = request.requestId || null;
+    const ledgerType = isAgo ? 'issuer_credit' : 'credit';
     await withTransaction(async (client) => {
       await walletsDb.ensureCoin(client, coinNorm);
       await walletsDb.ensureWallet(client, agentId, coinNorm);
@@ -109,10 +153,10 @@ async function issuerRoutes(fastify) {
       );
       const metadata = { issuer: request.issuerId };
       if (memo) metadata.memo = memo;
-      await walletsDb.insertLedgerEntry(client, agentId, coinNorm, 'credit', amountCents, metadata, externalRef, requestId);
+      await walletsDb.insertLedgerEntry(client, agentId, coinNorm, ledgerType, amountCents, metadata, externalRef, requestId);
     });
     await recordAuditEvent({
-      event_type: 'ISSUER_CREDIT',
+      event_type: 'ISSUER_CREDIT_ACCEPTED',
       actor_type: 'issuer',
       actor_id: request.issuerId,
       target_type: 'wallet',

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 import PageHeader from '../components/PageHeader';
 
@@ -10,11 +11,29 @@ const ENTITY_LABELS = {
   ledger_entries: 'Ledger entries',
 };
 
+const STATUS_STYLE = {
+  registered: { label: 'Registered', className: 'instance-badge instance-badge-ok' },
+  pending: { label: 'Pending', className: 'instance-badge instance-badge-pending' },
+  flagged: { label: 'Flagged', className: 'instance-badge instance-badge-warn' },
+  blocked: { label: 'Blocked', className: 'instance-badge instance-badge-error' },
+  unregistered: { label: 'Unregistered', className: 'instance-badge instance-badge-muted' },
+};
+
+function copyToClipboard(text, setFeedback) {
+  if (!navigator?.clipboard?.writeText) {
+    setFeedback?.('Copy not supported');
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => setFeedback?.('Copied!')).catch(() => setFeedback?.('Failed'));
+  if (setFeedback) setTimeout(() => setFeedback(''), 2000);
+}
+
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [copyFeedback, setCopyFeedback] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -48,6 +67,9 @@ export default function Dashboard() {
     return <PageHeader title="Dashboard" onReload={load} loading={loading} />;
   }
 
+  const instanceSummary = data?.instance_summary ?? null;
+  const baseUrl = data?.base_url ?? (typeof window !== 'undefined' ? window.location.origin : '');
+  const bridgePending = data?.bridge_pending_summary ?? { count: 0, total_cents: 0 };
   const exec24 = data?.executions_last_24h || {};
   const total24 = data?.executions_total_24h ?? 0;
   const errorRate = data?.error_rate_pct ?? 0;
@@ -59,9 +81,97 @@ export default function Dashboard() {
   const yesterday = stats?.yesterday || {};
   const pctVsYesterday = stats?.pct_vs_yesterday || {};
 
+  const manifestUrl = baseUrl ? `${baseUrl}/.well-known/agora.json` : '';
+  const docsUrl = baseUrl ? `${baseUrl}/docs` : '';
+
   return (
     <>
       <PageHeader title="Dashboard" onReload={load} loading={loading} />
+
+      <div className="card instance-dashboard-card">
+        <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span aria-hidden>◇</span> Instance &amp; compliance
+        </h3>
+        {!instanceSummary ? (
+          <div className="instance-empty">
+            <p><strong>No instance registered</strong></p>
+            <p className="muted">
+              Register this deployment via <code>POST /instance/register</code> to get an <code>instance_id</code>.
+              Use that ID as <code>INSTANCE_ID</code> in your <code>.env</code>. Then complete activation with Central/Official.
+            </p>
+            <Link to="/instance" className="primary" style={{ display: 'inline-block', marginTop: '0.5rem' }}>Open Instance →</Link>
+          </div>
+        ) : (
+          <div className="instance-grid">
+            <div className="instance-block">
+              <label>Instance ID</label>
+              <div className="instance-id-row">
+                <code className="instance-id">{instanceSummary.instance_id}</code>
+                <button
+                  type="button"
+                  className="secondary"
+                  style={{ flexShrink: 0 }}
+                  onClick={() => copyToClipboard(instanceSummary.instance_id, setCopyFeedback)}
+                  title="Copy"
+                >
+                  Copy
+                </button>
+                {copyFeedback && <span className="instance-copy-feedback">{copyFeedback}</span>}
+              </div>
+              <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>
+                Use as <code>INSTANCE_ID</code> in <code>.env</code> for this deployment.
+              </p>
+            </div>
+            <div className="instance-block">
+              <label>Status</label>
+              <span className={STATUS_STYLE[instanceSummary.status]?.className ?? 'instance-badge'}>
+                {STATUS_STYLE[instanceSummary.status]?.label ?? instanceSummary.status}
+              </span>
+            </div>
+            <div className="instance-block">
+              <label>Compliant</label>
+              <span className={instanceSummary.compliant ? 'success' : 'error'}>
+                {instanceSummary.compliant ? 'Yes' : 'No'}
+              </span>
+            </div>
+            <div className="instance-block">
+              <label>Export services</label>
+              <span>{instanceSummary.export_services_enabled ? 'Enabled' : 'Disabled'}</span>
+            </div>
+            <div className="instance-block">
+              <label>Last seen</label>
+              <span>{instanceSummary.last_seen_at ? new Date(instanceSummary.last_seen_at).toLocaleString() : '—'}</span>
+            </div>
+            <div className="instance-sync-block">
+              <label>Valor para sincronizar (AGO outbound pendente)</label>
+              <div className="instance-sync-value">
+                <strong>{bridgePending.count}</strong> transfer(s) · <strong>{(Number(bridgePending.total_cents) / 100).toFixed(2)}</strong> units
+              </div>
+              {bridgePending.count > 0 && (
+                <Link to="/bridge" className="secondary" style={{ display: 'inline-block', marginTop: '0.5rem' }}>View Bridge Transfers →</Link>
+              )}
+            </div>
+            <div className="instance-urls">
+              <label>Quick links</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                {manifestUrl && (
+                  <button type="button" className="secondary" onClick={() => copyToClipboard(manifestUrl, setCopyFeedback)} title={manifestUrl}>
+                    Copy manifest URL
+                  </button>
+                )}
+                {docsUrl && (
+                  <button type="button" className="secondary" onClick={() => copyToClipboard(docsUrl, setCopyFeedback)} title={docsUrl}>
+                    Copy docs URL
+                  </button>
+                )}
+                <Link to="/instance">Instance</Link>
+                <Link to="/bridge">Bridge</Link>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Entity counts</h3>
         <p className="muted">Total, last 24 hours, yesterday, and % change vs yesterday.</p>

@@ -47,7 +47,7 @@ async function activate(instanceId, registrationCode, activationToken, officialI
 
 async function getById(id) {
   const res = await query(
-    `SELECT id, name, owner_email, status, created_at, registered_at, last_seen_at FROM instance WHERE id = $1`,
+    `SELECT id, name, owner_email, status, created_at, registered_at, last_seen_at, official_issuer_id FROM instance WHERE id = $1`,
     [id]
   );
   return res.rows[0] || null;
@@ -56,7 +56,7 @@ async function getById(id) {
 async function findByActivationToken(token) {
   const tokenHash = hashToken((token || '').toString());
   const res = await query(
-    `SELECT id, name, owner_email, status, created_at, registered_at, last_seen_at FROM instance WHERE activation_token_hash = $1`,
+    `SELECT id, name, owner_email, status, created_at, registered_at, last_seen_at, official_issuer_id FROM instance WHERE activation_token_hash = $1`,
     [tokenHash]
   );
   return res.rows[0] || null;
@@ -66,6 +66,16 @@ async function updateLastSeen(id) {
   await query(`UPDATE instance SET last_seen_at = NOW() WHERE id = $1`, [id]);
 }
 
+async function updateStatus(id, status) {
+  const valid = ['unregistered', 'pending', 'registered', 'flagged', 'blocked'];
+  if (!valid.includes(status)) return null;
+  const res = await query(
+    `UPDATE instance SET status = $1 WHERE id = $2 RETURNING id, name, owner_email, status, created_at, registered_at, last_seen_at, official_issuer_id`,
+    [status, id]
+  );
+  return res.rows[0] || null;
+}
+
 module.exports = {
   hashToken,
   register,
@@ -73,4 +83,5 @@ module.exports = {
   getById,
   findByActivationToken,
   updateLastSeen,
+  updateStatus,
 };

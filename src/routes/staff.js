@@ -21,6 +21,7 @@ const trustLevelsDb = require('../db/trustLevels');
 const statsDb = require('../db/stats');
 const auditDb = require('../db/audit');
 const { recordAuditEvent } = require('../lib/audit');
+const { isReservedCoin } = require('../lib/compliance');
 
 function staffPreHandler(request, reply, done) {
   const path = request.routerPath || request.url.split('?')[0];
@@ -187,6 +188,9 @@ async function staffRoutes(fastify, opts) {
       return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: `Agent ${agentId} not found` });
     }
     const coinNorm = coin.toString().slice(0, 16).toUpperCase();
+    if (isReservedCoin(coinNorm)) {
+      return reply.code(403).send({ ok: false, code: 'RESERVED_COIN_MINT_FORBIDDEN', message: 'AGO cannot be minted locally. Use issuer credit when instance is compliant.' });
+    }
     if (externalRef) {
       const exists = await walletsDb.existsLedgerByExternalRef(null, coinNorm, externalRef);
       if (exists) return conflict(reply, 'external_ref already used');
@@ -225,21 +229,22 @@ async function staffRoutes(fastify, opts) {
   fastify.post('/issuers', {
     schema: {
       tags: ['Staff'],
-      description: 'Create an issuer (HMAC secret for signing credits).',
+      description: 'Create an issuer (HMAC secret for signing credits). Optionally set is_central for AGO Central issuer.',
       body: {
         type: 'object',
         required: ['name', 'secret'],
         properties: {
           name: { type: 'string' },
           secret: { type: 'string' },
+          is_central: { type: 'boolean', default: false },
         },
       },
       response: { 201: { type: 'object', properties: { ok: { type: 'boolean' }, data: { type: 'object' } } } },
     },
   }, async (request, reply) => {
-    const { name, secret } = request.body || {};
+    const { name, secret, is_central: isCentral } = request.body || {};
     if (!name || !secret) return badRequest(reply, 'name and secret are required');
-    const issuer = await issuersDb.createIssuer(name, secret, true);
+    const issuer = await issuersDb.createIssuer(name, secret, true, !!isCentral);
     await recordAuditEvent({
       event_type: 'STAFF_ISSUER_CREATE',
       actor_type: 'admin',
@@ -636,6 +641,10 @@ async function staffRoutes(fastify, opts) {
   fastify.get('/api/config', {
     schema: { tags: ['Staff'], description: 'Read-only config (safe flags)', response: { 200: { type: 'object' } } },
   }, async (_request, reply) => {
+    const compliance = require('../lib/compliance');
+    const compliant = await compliance.isInstanceCompliant();
+    const exportEnabled = (await staffSettingsDb.get('export_services_enabled')) === 'true';
+    const baseUrl = (config.agoraPublicUrl || '').replace(/\/$/, '') || `http://localhost:${config.port || 3000}`;
     const response = {
       ok: true,
       data: {
@@ -643,11 +652,208 @@ async function staffRoutes(fastify, opts) {
         enableFaucet: config.enableFaucet,
         staff2faEnabled: config.staff2faEnabled,
         staff2faForced: config.staff2faForced,
+        reservedCoin: compliance.RESERVED_COIN,
+        export_services_enabled: exportEnabled,
+        ago_inbound_derived: compliant ? 'enabled' : 'disabled',
+        ago_outbound_derived: compliant ? 'enabled' : 'disabled',
+        export_derived: compliant && exportEnabled ? 'enabled' : 'disabled',
+        base_url: baseUrl,
+        agora_center_url: config.agoraCenterUrl || null,
       },
     };
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
     reply.raw.end(JSON.stringify(response));
     return;
+  });
+
+  fastify.patch('/api/settings', {
+    schema: {
+      tags: ['Staff'],
+      description: 'Update staff settings (e.g. export_services_enabled)',
+      body: { type: 'object', properties: { export_services_enabled: { type: 'boolean' } } },
+      response: { 200: { type: 'object' } },
+    },
+  }, async (request, reply) => {
+    const { export_services_enabled } = request.body || {};
+    if (typeof export_services_enabled === 'boolean') {
+      await staffSettingsDb.set('export_services_enabled', export_services_enabled ? 'true' : 'false');
+    }
+    const exportEnabled = (await staffSettingsDb.get('export_services_enabled')) === 'true';
+    return reply.send({ ok: true, data: { export_services_enabled: exportEnabled } });
+  });
+
+  const instanceDb = require('../db/instance');
+  const bridgeDb = require('../db/bridgeTransfers');
+
+  fastify.get('/api/instance', {
+    schema: { tags: ['Staff'], description: 'Get current instance (compliance, status, AGO balance)' },
+  }, async (_request, reply) => {
+    const compliance = require('../lib/compliance');
+    const inst = await compliance.getCurrentInstance();
+    const exportEnabled = (await staffSettingsDb.get('export_services_enabled')) === 'true';
+    const reservedCoin = config.reservedCoin || 'AGO';
+    let total_ago_cents = 0;
+    try {
+      const sumRes = await query(
+        'SELECT COALESCE(SUM(balance_cents), 0)::bigint AS total FROM wallets WHERE coin = $1',
+        [reservedCoin]
+      );
+      total_ago_cents = sumRes.rows[0] ? Number(sumRes.rows[0].total) : 0;
+    } catch (_) {}
+    const response = {
+      ok: true,
+      data: inst ? {
+        ...inst,
+        compliant: inst.status === 'registered',
+        export_services_enabled: exportEnabled,
+        total_ago_cents,
+      } : { total_ago_cents },
+    };
+    return reply.send(response);
+  });
+
+  fastify.patch('/api/instance/:id/status', {
+    schema: {
+      tags: ['Staff'],
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      body: { type: 'object', required: ['status'], properties: { status: { type: 'string', enum: ['unregistered', 'pending', 'registered', 'flagged', 'blocked'] } } },
+      response: { 200: { type: 'object' } },
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { status } = request.body || {};
+    const inst = await instanceDb.getById(id);
+    if (!inst) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Instance not found' });
+    const updated = await instanceDb.updateStatus(id, status);
+    if (status && status !== 'registered') {
+      const n = await servicesDb.suspendAllExported('INSTANCE_NOT_COMPLIANT');
+      if (n > 0) request.log.info({ suspended_count: n }, 'Suspended exported services');
+    }
+    await recordAuditEvent({
+      event_type: 'INSTANCE_STATUS_CHANGED',
+      actor_type: 'admin',
+      target_type: 'instance',
+      target_id: id,
+      metadata: { status },
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true, data: updated });
+  });
+
+  fastify.get('/api/bridge', {
+    schema: { tags: ['Staff'], description: 'List bridge transfers' },
+  }, async (request, reply) => {
+    const { status, kind, coin, from_date, to_date, limit, offset } = request.query || {};
+    const result = await bridgeDb.list({ status, kind, coin, from_date, to_date, limit, offset });
+    return reply.send({ ok: true, data: { rows: result.rows, total: result.total } });
+  });
+
+  fastify.get('/api/bridge/:id', {
+    schema: { tags: ['Staff'], params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } } },
+  }, async (request, reply) => {
+    const transfer = await bridgeDb.getById(request.params.id);
+    if (!transfer) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Bridge transfer not found' });
+    return reply.send({ ok: true, data: transfer });
+  });
+
+  fastify.post('/api/bridge/:id/settle', {
+    schema: { tags: ['Staff'], params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object' } } },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const transfer = await bridgeDb.getById(id);
+    if (!transfer) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Bridge transfer not found' });
+    if (transfer.status !== 'pending') {
+      return reply.code(409).send({ ok: false, code: 'CONFLICT', message: 'Transfer is not pending' });
+    }
+    await withTransaction(async (client) => {
+      await walletsDb.insertLedgerEntry(client, transfer.from_agent_id, transfer.coin, 'debit_outbound', transfer.amount_cents, { bridge_transfer_id: id }, null, request.requestId);
+    });
+    const updated = await bridgeDb.updateStatus(id, 'settled');
+    await recordAuditEvent({
+      event_type: 'BRIDGE_TRANSFER_SETTLED',
+      actor_type: 'admin',
+      target_type: 'wallet',
+      target_id: transfer.from_agent_id,
+      metadata: { bridge_transfer_id: id, coin: transfer.coin, amount_cents: transfer.amount_cents },
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true, data: updated });
+  });
+
+  fastify.post('/api/bridge/:id/reject', {
+    schema: {
+      tags: ['Staff'],
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      body: { type: 'object', properties: { reason: { type: 'string' } } },
+      response: { 200: { type: 'object' } },
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const reason = (request.body || {}).reason || null;
+    const transfer = await bridgeDb.getById(id);
+    if (!transfer) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Bridge transfer not found' });
+    if (transfer.status !== 'pending') {
+      return reply.code(409).send({ ok: false, code: 'CONFLICT', message: 'Transfer is not pending' });
+    }
+    await withTransaction(async (client) => {
+      await walletsDb.credit(client, transfer.from_agent_id, transfer.coin, transfer.amount_cents, { bridge_refund: id }, request.requestId);
+    });
+    const updated = await bridgeDb.updateStatus(id, 'rejected', reason);
+    await recordAuditEvent({
+      event_type: 'BRIDGE_TRANSFER_REJECTED',
+      actor_type: 'admin',
+      target_type: 'wallet',
+      target_id: transfer.from_agent_id,
+      metadata: { bridge_transfer_id: id, reason },
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true, data: updated });
+  });
+
+  fastify.get('/api/services/exported', {
+    schema: { tags: ['Staff'], description: 'List exported services (visibility=exported)' },
+  }, async (request, reply) => {
+    const { export_status, owner_agent_id, limit, offset } = request.query || {};
+    const result = await servicesDb.list({
+      visibility: 'exported',
+      export_status: export_status || undefined,
+      owner_agent_id: owner_agent_id || undefined,
+      limit: limit || 50,
+      offset: offset || 0,
+    });
+    const rows = Array.isArray(result?.rows) ? result.rows : [];
+    const coinsMap = await getCoinsMap();
+    const formattedRows = rows.map((r) => ({ ...r, price_formated: formatMoney(r.price_cents, r.coin, coinsMap) }));
+    return reply.send({ ok: true, data: { rows: formattedRows, total: result?.total ?? 0 } });
+  });
+
+  fastify.post('/api/services/:id/resume-export', {
+    schema: { tags: ['Staff'], params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object' } } },
+  }, async (request, reply) => {
+    const compliance = require('../lib/compliance');
+    const serviceId = request.params.id;
+    const service = await servicesDb.getById(serviceId);
+    if (!service) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Service not found' });
+    if (service.visibility !== 'exported') {
+      return reply.code(400).send({ ok: false, code: 'BAD_REQUEST', message: 'Service is not exported' });
+    }
+    const compliant = await compliance.isInstanceCompliant();
+    if (!compliant) {
+      return reply.code(403).send({ ok: false, code: 'INSTANCE_NOT_COMPLIANT', message: 'Instance must be compliant' });
+    }
+    const exportEnabled = await staffSettingsDb.get('export_services_enabled');
+    if (exportEnabled !== 'true') {
+      return reply.code(403).send({ ok: false, code: 'EXPORTS_DISABLED', message: 'Export is disabled in settings' });
+    }
+    const updated = await servicesDb.resumeExport(serviceId);
+    await recordAuditEvent({
+      event_type: 'SERVICE_EXPORT_RESUMED',
+      actor_type: 'admin',
+      target_type: 'service',
+      target_id: serviceId,
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true, data: updated });
   });
 
   fastify.get('/api/statistics', {
@@ -661,14 +867,18 @@ async function staffRoutes(fastify, opts) {
   });
 
   fastify.get('/api/dashboard', {
-    schema: { tags: ['Staff'], description: 'Operational dashboard: executions last 24h, error rate, paused services, recent ledger, recent audit' },
+    schema: { tags: ['Staff'], description: 'Operational dashboard: instance summary, bridge pending, executions last 24h, error rate, paused services, recent ledger, recent audit' },
   }, async (_request, reply) => {
-    const [executions24hRes, errorRateRes, pausedRes, recentLedgerRes, recentAuditRes] = await Promise.all([
+    const compliance = require('../lib/compliance');
+    const [executions24hRes, errorRateRes, pausedRes, recentLedgerRes, recentAuditRes, inst, exportEnabled, bridgePending] = await Promise.all([
       query(`SELECT status, COUNT(*)::int AS cnt FROM executions WHERE created_at >= NOW() - INTERVAL '24 hours' GROUP BY status`, []),
       query(`SELECT COUNT(*) FILTER (WHERE status = 'failed')::int AS failed, COUNT(*)::int AS total FROM executions WHERE created_at >= NOW() - INTERVAL '24 hours'`, []),
       query(`SELECT COUNT(*)::int AS n FROM services WHERE status = 'paused'`, []),
       walletsDb.listLedger({ limit: 10, offset: 0 }),
       auditDb.list({ limit: 15, offset: 0 }),
+      compliance.getCurrentInstance(),
+      staffSettingsDb.get('export_services_enabled'),
+      bridgeDb.getPendingSummary(),
     ]);
     const byStatus = {};
     (executions24hRes.rows || []).forEach((r) => { byStatus[r.status] = r.cnt; });
@@ -693,9 +903,22 @@ async function staffRoutes(fastify, opts) {
       target_id: r.target_id,
       created_at: r.created_at,
     }));
+    const instance_summary = inst ? {
+      instance_id: inst.id,
+      name: inst.name,
+      status: inst.status,
+      compliant: inst.status === 'registered',
+      export_services_enabled: exportEnabled === 'true',
+      last_seen_at: inst.last_seen_at,
+      registered_at: inst.registered_at,
+    } : null;
+    const base_url = (config.agoraPublicUrl || '').replace(/\/$/, '') || `http://localhost:${config.port || 3000}`;
     const response = {
       ok: true,
       data: {
+        instance_summary,
+        base_url,
+        bridge_pending_summary: { count: bridgePending.count, total_cents: bridgePending.total_cents },
         executions_last_24h: byStatus,
         executions_total_24h: total,
         error_rate_pct: error_rate_pct,

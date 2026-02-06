@@ -11,6 +11,7 @@ export default function Config() {
   const [loading, setLoading] = useState(true);
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupError, setBackupError] = useState(null);
+  const [savingExport, setSavingExport] = useState(false);
 
   const handleBackup = () => {
     setBackupError(null);
@@ -84,6 +85,40 @@ export default function Config() {
         <h3 style={{ marginTop: 0 }}>System</h3>
         <p><strong>Default coin:</strong> {config.defaultCoin}</p>
         <p><strong>Faucet enabled:</strong> {config.enableFaucet ? 'Yes' : 'No'}</p>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Service export</h3>
+        <div style={{ marginBottom: '1rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={config.export_services_enabled === true}
+              onChange={async (e) => {
+                const v = e.target.checked;
+                setSavingExport(true);
+                try {
+                  await api.settingsUpdate({ export_services_enabled: v });
+                  setConfig((c) => (c ? { ...c, export_services_enabled: v } : c));
+                } finally {
+                  setSavingExport(false);
+                }
+              }}
+              disabled={savingExport}
+            />
+            Enable Service Export
+          </label>
+        </div>
+        <p className="muted">When enabled, agents can mark services as exported (visible to other instances when compliant).</p>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>AGO &amp; compliance (read-only)</h3>
+        <p><strong>Reserved coin:</strong> {config.reservedCoin ?? 'AGO'}</p>
+        <p><strong>AGO inbound:</strong> <span className={config.ago_inbound_derived === 'enabled' ? 'success' : ''}>{config.ago_inbound_derived ?? '—'}</span></p>
+        <p><strong>AGO outbound:</strong> <span className={config.ago_outbound_derived === 'enabled' ? 'success' : ''}>{config.ago_outbound_derived ?? '—'}</span></p>
+        <p><strong>Export (derived):</strong> <span className={config.export_derived === 'enabled' ? 'success' : ''}>{config.export_derived ?? '—'}</span></p>
+        <p className="muted">Derived from instance status (registered = compliant). Outbound and export are not separate toggles.</p>
       </div>
 
       <div className="card">

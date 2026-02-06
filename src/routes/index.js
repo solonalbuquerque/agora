@@ -106,6 +106,91 @@ async function routes(fastify) {
     return reply.send(doc);
   });
 
+  // Public instance manifest (AGO compliance / audit)
+  fastify.get('/.well-known/agora.json', {
+    schema: {
+      tags: ['Health'],
+      description: 'Public instance manifest: protocol version, instance id, status, export and AGO policy summary, and audit endpoint paths.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            protocol: { type: 'string' },
+            protocol_version: { type: 'string' },
+            instance_id: { type: ['string', 'null'] },
+            base_url: { type: 'string' },
+            instance_status: { type: 'string', enum: ['unregistered', 'pending', 'registered', 'flagged', 'blocked'] },
+            export_services_enabled: { type: 'boolean' },
+            reserved_coin_policy: {
+              type: 'object',
+              properties: {
+                reserved_coin: { type: 'string' },
+                local_mint_forbidden: { type: 'boolean' },
+                local_transfer_allowed: { type: 'boolean' },
+                outbound_gated_by_compliance: { type: 'boolean' },
+                inbound_gated_by_compliance: { type: 'boolean' },
+              },
+            },
+            docs: {
+              type: 'object',
+              properties: {
+                swagger_ui: { type: 'string' },
+                swagger_spec: { type: 'string' },
+                doc_ia: { type: 'string' },
+              },
+            },
+            endpoints: {
+              type: 'object',
+              properties: {
+                balance: { type: 'string', description: 'GET /wallet/:coin/balance (HMAC)' },
+                statement: { type: 'string', description: 'GET /wallet/:coin/statement (HMAC)' },
+                public_services: { type: 'string', description: 'GET /public/services' },
+              },
+            },
+            central_connection_url: { type: 'string', nullable: true, description: 'URL of AGORA-CENTER (Central) when AGORA_CENTER_URL is set' },
+          },
+        },
+      },
+    },
+  }, async (_request, reply) => {
+    reply.header('Cache-Control', 'public, max-age=60');
+    const compliance = require('../lib/compliance');
+    const staffSettingsDb = require('../db/staffSettings');
+    const config = require('../config');
+    const inst = await compliance.getCurrentInstance();
+    const exportEnabled = (await staffSettingsDb.get('export_services_enabled')) === 'true';
+    const status = inst ? inst.status : 'unregistered';
+    const payload = {
+      protocol: 'agora',
+      protocol_version: pkg.version || '1.0.0',
+      instance_id: inst ? inst.id : null,
+      base_url: baseUrl,
+      instance_status: status,
+      export_services_enabled: exportEnabled,
+      reserved_coin_policy: {
+        reserved_coin: compliance.RESERVED_COIN,
+        local_mint_forbidden: true,
+        local_transfer_allowed: true,
+        outbound_gated_by_compliance: true,
+        inbound_gated_by_compliance: true,
+      },
+      docs: {
+        swagger_ui: `${baseUrl}/docs`,
+        swagger_spec: `${baseUrl}/swagger.json`,
+        doc_ia: `${baseUrl}/doc-ia`,
+      },
+      endpoints: {
+        balance: `${baseUrl}/wallet/:coin/balance`,
+        statement: `${baseUrl}/wallet/:coin/statement`,
+        public_services: `${baseUrl}/public/services`,
+      },
+    };
+    if (config.agoraCenterUrl) {
+      payload.central_connection_url = config.agoraCenterUrl;
+    }
+    return reply.send(payload);
+  });
+
   fastify.get('/health', {
     schema: {
       tags: ['Health'],
@@ -219,8 +304,55 @@ async function routes(fastify) {
     return reply.header('Content-Type', 'text/plain; charset=utf-8').send(body);
   });
 
+  fastify.get('/public/services', {
+    schema: {
+      tags: ['Public'],
+      description: 'List exported services (visibility=exported, export_status=active). Only returns data when instance is compliant; otherwise empty list with warning.',
+      querystring: {
+        type: 'object',
+        properties: { visibility: { type: 'string', enum: ['exported'] } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            warning: { type: 'string', nullable: true },
+            data: {
+              type: 'object',
+              properties: {
+                rows: { type: 'array', items: { type: 'object' } },
+                total: { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const compliance = require('../lib/compliance');
+    const servicesDb = require('../db/services');
+    const compliant = await compliance.isInstanceCompliant();
+    if (!compliant) {
+      return reply.send({
+        ok: true,
+        warning: 'Instance not compliant — exported services are suspended.',
+        data: { rows: [], total: 0 },
+      });
+    }
+    const { rows, total } = await servicesDb.list({
+      status: 'active',
+      visibility: 'exported',
+      export_status: 'active',
+      limit: 100,
+      offset: 0,
+    });
+    return reply.send({ ok: true, data: { rows, total } });
+  });
+
   fastify.register(require('./agents'), { prefix: '/agents', requireAgentAuth: requireAuth });
   fastify.register(require('./wallet'), { prefix: '/wallet', requireAgentAuth: requireAuth });
+  fastify.register(require('./bridge'), { prefix: '/bridge', requireAgentAuth: requireAuth });
   fastify.register(require('./services'), { prefix: '/services', requireAgentAuth: requireAuth });
   fastify.register(require('./executions'), { prefix: '', requireAgentAuth: requireAuth });
   fastify.register(require('./reputation'), { prefix: '/reputation' });

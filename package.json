@@ -21,7 +21,7 @@
     "docs:json": "node scripts/generate-docs-json.js",
     "cleanup": "node scripts/cleanup.js",
     "docker:down": "docker compose down",
-    "docker:reset": "docker compose down -v",
+    "docker:clear": "docker compose down -v",
     "docker:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",
     "docker:up": "docker compose up -d --build",
     "build:staff": "cd staff-ui && npm install && npm run build"

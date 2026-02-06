@@ -10,7 +10,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/staff': {
+      '/staff/api': {
         target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
@@ -24,6 +24,41 @@ export default defineConfig({
             });
           });
         },
+      },
+      '/staff/login': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+        logLevel: 'debug',
+        configure: (proxy, _options) => {
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            console.log('[Vite Proxy] Response:', {
+              statusCode: proxyRes.statusCode,
+              headers: proxyRes.headers,
+              url: req.url
+            });
+          });
+        },
+      },
+      '/staff/logout': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/staff/2fa': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/staff/mint': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/staff/issuers': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
       },
     },
   },

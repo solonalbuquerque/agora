@@ -10,6 +10,13 @@ const navSections = [
     ],
   },
   {
+    title: 'Instance & Central',
+    items: [
+      { to: 'instance', label: 'Instance' },
+      { to: 'bridge', label: 'Bridge Transfers' },
+    ],
+  },
+  {
     title: 'Agents',
     items: [
       { to: 'agents', label: 'List Agents' },
@@ -25,6 +32,7 @@ const navSections = [
     title: 'Services',
     items: [
       { to: 'services', label: 'List Services' },
+      { to: 'services/exported', label: 'Exported Services' },
       { to: 'executions', label: 'Executions' },
       { to: 'webhook-security', label: 'Webhook Security' },
       { to: 'circuit-breakers', label: 'Circuit Breakers' },

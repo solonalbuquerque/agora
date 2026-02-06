@@ -128,6 +128,23 @@ async function credit(client, agentId, coin, amountCents, metadata = null, reque
 }
 
 /**
+ * Debit and record hold_outbound (bridge outbound). Call inside a transaction.
+ */
+async function debitHold(client, agentId, coin, amountCents, metadata = null, requestId = null) {
+  await ensureWallet(client, agentId, coin);
+  const res = await client.query(
+    'UPDATE wallets SET balance_cents = balance_cents - $1 WHERE agent_id = $2 AND coin = $3 RETURNING balance_cents',
+    [amountCents, agentId, coin]
+  );
+  if (res.rows[0] && Number(res.rows[0].balance_cents) < 0) {
+    const err = new Error('Insufficient balance');
+    err.code = 'INSUFFICIENT_BALANCE';
+    throw err;
+  }
+  await insertLedgerEntry(client, agentId, coin, 'hold_outbound', amountCents, metadata, null, requestId);
+}
+
+/**
  * List ledger entries (statement) for an agent/coin with optional filters.
  * filters: { type, from_date, to_date, limit, offset }
  * - type: 'credit' | 'debit' (opcional)
@@ -324,6 +341,7 @@ module.exports = {
   transfer,
   debit,
   credit,
+  debitHold,
   getStatement,
   listWallets,
   listLedger,

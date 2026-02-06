@@ -7,6 +7,8 @@ const { created, success, list } = require('../lib/responses');
 const { badRequest, notFound, forbidden } = require('../lib/errors');
 const { formatMoney } = require('../lib/money');
 const { getAllowPaidServices } = require('../lib/trustLevels');
+const compliance = require('../lib/compliance');
+const { recordAuditEvent } = require('../lib/audit');
 
 async function servicesRoutes(fastify, opts) {
   const requireAuth = opts.requireAgentAuth;
@@ -30,6 +32,7 @@ async function servicesRoutes(fastify, opts) {
           output_schema: { type: 'object' },
           price_cents: { type: 'integer', minimum: 0 },
           coin: { type: 'string', maxLength: 16 },
+          export: { type: 'boolean', default: false },
         },
       },
       response: {
@@ -65,12 +68,17 @@ async function servicesRoutes(fastify, opts) {
       return badRequest(reply, 'name and webhook_url are required');
     }
     const priceCents = body.price_cents ?? 0;
+    const wantExport = body.export === true;
     if (priceCents > 0) {
       const owner = await agentsDb.getById(ownerAgentId);
       const trustLevel = owner ? (owner.trust_level ?? 0) : 0;
       if (!getAllowPaidServices(trustLevel)) {
         return forbidden(reply, 'Your trust level does not allow publishing paid services. Reach Verified (level 1) or higher.');
       }
+    }
+    if (wantExport) {
+      const allowed = await compliance.requireCompliantForExports(reply);
+      if (!allowed) return;
     }
     const service = await servicesDb.create({
       owner_agent_id: ownerAgentId,
@@ -81,7 +89,18 @@ async function servicesRoutes(fastify, opts) {
       output_schema: body.output_schema,
       price_cents: priceCents,
       coin: body.coin || 'AGOTEST',
+      export: wantExport,
     });
+    if (wantExport) {
+      await recordAuditEvent({
+        event_type: 'SERVICE_EXPORT_ENABLED',
+        actor_type: 'admin',
+        target_type: 'service',
+        target_id: service.id,
+        metadata: { name: service.name },
+        request_id: request.requestId,
+      });
+    }
     const coinCfg = await walletsDb.getCoin(service.coin);
     const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
     return created(reply, { ...service, price_formated: formatMoney(service.price_cents, service.coin, coinsMap) });
@@ -175,6 +194,47 @@ async function servicesRoutes(fastify, opts) {
       created_at: { type: 'string', format: 'date-time' },
     },
   };
+
+  fastify.patch('/:id/export', {
+    preHandler: requireAuth,
+    schema: {
+      tags: ['Services'],
+      description: 'Enable or disable service export. Only owner. Export requires instance compliant and export_services_enabled.',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        required: ['export'],
+        properties: { export: { type: 'boolean' } },
+      },
+      response: {
+        200: { type: 'object', properties: { ok: { type: 'boolean' }, data: serviceDataSchema } },
+        403: { type: 'object', properties: { code: { type: 'string' }, message: { type: 'string' } } },
+      },
+    },
+  }, async (request, reply) => {
+    const agentId = request.agentId;
+    const { id } = request.params;
+    const service = await servicesDb.getById(id);
+    if (!service) return notFound(reply, 'Service not found');
+    if (service.owner_agent_id !== agentId) return forbidden(reply, 'Only the owner can change export');
+    const wantExport = request.body?.export === true;
+    if (wantExport) {
+      const allowed = await compliance.requireCompliantForExports(reply);
+      if (!allowed) return;
+    }
+    const updated = await servicesDb.setExport(id, wantExport);
+    await recordAuditEvent({
+      event_type: wantExport ? 'SERVICE_EXPORT_ENABLED' : 'SERVICE_EXPORT_DISABLED',
+      actor_type: 'admin',
+      target_type: 'service',
+      target_id: id,
+      metadata: { name: updated.name },
+      request_id: request.requestId,
+    });
+    const coinCfg = await walletsDb.getCoin(updated.coin);
+    const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
+    return success(reply, { ...updated, price_formated: formatMoney(updated.price_cents, updated.coin, coinsMap) });
+  });
 
   fastify.put('/:id', {
     preHandler: requireAuth,

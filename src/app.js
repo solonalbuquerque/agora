@@ -86,6 +86,53 @@ fastify.register(swagger, {
           schema: { type: 'string' },
         },
       },
+      responses: {
+        InstanceNotCompliant: {
+          description: 'Instance is not compliant (status is not registered). AGO inbound, AGO outbound, and service export are disabled.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  ok: { type: 'boolean', example: false },
+                  code: { type: 'string', example: 'INSTANCE_NOT_COMPLIANT' },
+                  message: { type: 'string', example: 'AGO inbound is disabled until the instance is compliant.' },
+                },
+              },
+            },
+          },
+        },
+        ExportsDisabled: {
+          description: 'Service export is disabled by settings (export_services_enabled is false).',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  ok: { type: 'boolean', example: false },
+                  code: { type: 'string', example: 'EXPORTS_DISABLED' },
+                  message: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        ReservedCoinMintForbidden: {
+          description: 'AGO cannot be minted locally (admin mint or faucet).',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  ok: { type: 'boolean', example: false },
+                  code: { type: 'string', example: 'RESERVED_COIN_MINT_FORBIDDEN' },
+                  message: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
     },
     tags: [
       { name: 'Health', description: 'Health check and documentation' },
@@ -99,6 +146,8 @@ fastify.register(swagger, {
       { name: 'Faucet', description: 'Self-host faucet. Only active when ENABLE_FAUCET=true.' },
       { name: 'Issuer', description: 'Issuer-signed credit. Headers X-Issuer-Id, X-Issuer-Timestamp, X-Issuer-Signature.' },
       { name: 'Instance', description: 'Instance registration and activation. Status with X-Instance-Token or X-Admin-Token.' },
+      { name: 'Bridge', description: 'AGO outbound (cross-instance / cashout). HMAC agent auth; compliance required.' },
+      { name: 'Public', description: 'Public endpoints (e.g. instance manifest, exported services list).' },
       { name: 'Observability', description: 'Health, readiness, and metrics (B2).' },
     ],
   },
@@ -116,6 +165,15 @@ fastify.register(routes);
 fastify.addHook('onReady', async () => {
   const trustLevels = require('./lib/trustLevels');
   await trustLevels.loadFromDb();
+  const compliance = require('./lib/compliance');
+  const servicesDb = require('./db/services');
+  const compliant = await compliance.isInstanceCompliant();
+  if (!compliant) {
+    const n = await servicesDb.suspendAllExported('INSTANCE_NOT_COMPLIANT');
+    if (n > 0) {
+      fastify.log.info({ suspended_count: n }, 'Auto-suspended exported services (instance not compliant)');
+    }
+  }
 });
 
 fastify.setErrorHandler((err, request, reply) => {

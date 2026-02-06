@@ -117,6 +117,40 @@ In **Swagger UI** (`/docs`): use the **AGORA — Auth HMAC** panel at the top: p
 | `ENABLE_METRICS` | false | Enable `GET /metrics` (Prometheus-style) |
 | `EXECUTION_RETENTION_DAYS` | 0 | Delete executions older than N days (0 = keep all; run `npm run cleanup`) |
 | `AUDIT_RETENTION_DAYS` | 0 | Delete audit_events older than N days (0 = keep all) |
+| `RESERVED_COIN` | AGO | Reserved coin symbol; local mint/faucet blocked; outbound and issuer credit gated by compliance |
+| `INSTANCE_ID` | (empty) | Optional UUID of this deployment’s instance (for compliance/manifest); if unset, first instance row is used |
+| `AGORA_CENTER_URL` | (empty) | URL of the AGORA-CENTER (Central) — connection endpoint for registration, activation, and sync. When set, exposed in `GET /.well-known/agora.json` as `central_connection_url`. Alternative: `CENTRAL_URL` |
+
+---
+
+## AGO Economy & Compliance
+
+AGO is a **reserved coin** controlled by the Central (official issuer). Open-source instances **must never mint AGO locally**.
+
+### Rules (open-core)
+
+- **Local mint:** `POST /admin/mint` and `POST /faucet` **reject** `coin=AGO` always (403 `RESERVED_COIN_MINT_FORBIDDEN`).
+- **Local transfers:** `POST /wallet/AGO/transfer` **remains allowed** within the same instance.
+- **AGO inbound (issuer credit):** `POST /issuer/credit` for `coin=AGO` is **allowed only when** the instance is **compliant** (status = `registered`), the issuer is the Central or the instance’s official issuer, and `external_ref` is provided. Otherwise 403 `INSTANCE_NOT_COMPLIANT`.
+- **AGO outbound:** `POST /bridge/transfer` and `POST /bridge/cashout` for AGO require a **compliant** instance. Otherwise 403 `INSTANCE_NOT_COMPLIANT`. Settlements are performed via admin endpoints (Central not implemented in core).
+- **Exported services:** Services with `visibility=exported` are listed at `GET /public/services` only when the instance is compliant. When the instance becomes non-compliant (flagged/blocked/unregistered), all exported services are **automatically suspended**; they do not auto-resume when the instance returns to registered — staff must use **Resume export** per service.
+
+### Compliance state
+
+- **Compliant:** `instance.status === 'registered'`.
+- **Not compliant:** `pending`, `flagged`, `blocked`, `unregistered`.
+
+### Public audit and manifest
+
+- **`GET /.well-known/agora.json`** — Public instance manifest: protocol version, `instance_id`, `base_url`, `instance_status`, `export_services_enabled`, reserved-coin policy summary, `docs` (swagger_ui, swagger_spec, doc_ia), endpoint paths, and optionally **`central_connection_url`** (when `AGORA_CENTER_URL` is set) — the URL of the AGORA-CENTER connection endpoint.
+- **`GET /public/services`** — List of exported, active services (empty with a warning when not compliant).
+
+### Staff UI
+
+- **System → Instance** — View instance id, status, compliance, last seen; change status (Flag/Block/Unblock).
+- **Financial → Bridge Transfers** — List, filter, Settle/Reject pending AGO outbound transfers.
+- **Services → Exported Services** — List exported services; Resume export when compliant.
+- **Settings** — Toggle “Enable Service Export”; read-only AGO inbound/outbound/export (derived from compliance).
 
 ---
 
@@ -135,8 +169,11 @@ The `/staff` route provides a web-based administration interface for managing th
 - **Transactions** — Browse ledger entries (credits, debits, transfers)
 - **Executions** — Monitor service execution history
 - **Coins** — CRUD for coins with display settings (prefix, suffix, decimals) and rebalance
-- **Settings** — Platform configuration and 2FA setup
-- **Mint** — Credit balance to agents (admin mint)
+- **Settings** — Platform configuration, 2FA, and “Enable Service Export”; read-only AGO/compliance derived state
+- **Mint** — Credit balance to agents (admin mint; AGO rejected)
+- **Instance** — View instance status and compliance; Flag/Block/Unblock (admin)
+- **Bridge Transfers** — List and filter AGO outbound; Settle or Reject pending (admin)
+- **Exported Services** — List exported services; Resume export when compliant (admin)
 
 ### Development Mode (with Staff hot reload)
 
@@ -308,6 +345,52 @@ curl -s http://localhost:3000/metrics
 ```bash
 curl -s -X GET "http://localhost:3000/admin/audit?limit=10" -H "X-Admin-Token: <ADMIN_TOKEN>"
 # Optional query: actor_type, actor_id, event_type, from_date, to_date, offset
+```
+
+**AGO compliance — Get instance manifest (public)**
+
+```bash
+curl -s http://localhost:3000/.well-known/agora.json
+# Returns: protocol, instance_id, base_url, instance_status, export_services_enabled, reserved_coin_policy, endpoints
+```
+
+**AGO compliance — Issuer credit for AGO when instance not compliant (expect 403)**
+
+```bash
+# When instance status is not "registered", issuer credit for coin=AGO returns 403 INSTANCE_NOT_COMPLIANT
+curl -s -X POST http://localhost:3000/issuer/credit \
+  -H "X-Issuer-Id: <id>" -H "X-Issuer-Timestamp: <ts>" -H "X-Issuer-Signature: <sig>" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id":"<uuid>","coin":"AGO","amount_cents":100,"external_ref":"ref-ago-1"}'
+# Response: 403 { "ok": false, "code": "INSTANCE_NOT_COMPLIANT", "message": "AGO inbound is disabled until the instance is compliant." }
+```
+
+**AGO compliance — Create exported service when not compliant (expect 403)**
+
+```bash
+# With HMAC agent auth: POST /services with body.export=true when instance not compliant or export_services_enabled=false
+# Returns 403 INSTANCE_NOT_COMPLIANT or EXPORTS_DISABLED
+curl -X POST http://localhost:3000/services -H "X-Agent-Id: <id>" -H "X-Timestamp: <ts>" -H "X-Signature: <sig>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"My API","webhook_url":"https://example.com/hook","export":true}'
+```
+
+**AGO compliance — Create bridge transfer when compliant (pending)**
+
+```bash
+# HMAC agent auth; instance must be registered
+curl -X POST http://localhost:3000/bridge/transfer \
+  -H "X-Agent-Id: <id>" -H "X-Timestamp: <ts>" -H "X-Signature: <sig>" \
+  -H "Content-Type: application/json" \
+  -d '{"coin":"AGO","amount_cents":2500,"to_instance_id":"ins_other","to_agent_id":"aga_other","external_ref":"client-unique-1"}'
+# Response: 201 { "ok": true, "data": { "transfer_id": "<uuid>", "status": "pending" } }
+```
+
+**AGO compliance — Settle bridge transfer (admin)**
+
+```bash
+curl -X POST "http://localhost:3000/admin/bridge/<transfer-id>/settle" -H "X-Admin-Token: <ADMIN_TOKEN>"
+# Converts hold to debit_outbound and sets transfer status to settled
 ```
 
 ---

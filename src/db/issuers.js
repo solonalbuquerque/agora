@@ -4,20 +4,20 @@ const { query } = require('./index');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
-async function createIssuer(name, publicKeyOrSecret, useSecret = true) {
+async function createIssuer(name, publicKeyOrSecret, useSecret = true, isCentral = false) {
   const id = uuidv4();
   const secret = useSecret ? publicKeyOrSecret : null;
   const publicKey = useSecret ? null : publicKeyOrSecret;
   await query(
-    `INSERT INTO issuers (id, name, status, public_key, secret) VALUES ($1, $2, 'active', $3, $4)`,
-    [id, name, publicKey, secret]
+    `INSERT INTO issuers (id, name, status, public_key, secret, is_central) VALUES ($1, $2, 'active', $3, $4, $5)`,
+    [id, name, publicKey, secret, !!isCentral]
   );
   return getById(id);
 }
 
 async function getById(id) {
   const res = await query(
-    'SELECT id, name, status, public_key, created_at, revoked_at FROM issuers WHERE id = $1',
+    'SELECT id, name, status, public_key, created_at, revoked_at, is_central FROM issuers WHERE id = $1',
     [id]
   );
   return res.rows[0] || null;
@@ -40,7 +40,7 @@ async function revoke(id) {
 
 async function list() {
   const res = await query(
-    'SELECT id, name, status, created_at, revoked_at FROM issuers ORDER BY created_at DESC'
+    'SELECT id, name, status, created_at, revoked_at, is_central FROM issuers ORDER BY created_at DESC'
   );
   return res.rows;
 }

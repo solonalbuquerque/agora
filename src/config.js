@@ -16,6 +16,10 @@ const config = {
   staff2faForced: process.env.STAFF_2FA_FORCED === 'true',
   staff2faSecret: process.env.STAFF_2FA_SECRET || '',
   defaultCoin: process.env.DEFAULT_COIN || 'AGOTEST',
+  /** Reserved coin (AGO): only Central can mint; local mint/faucet blocked; outbound and issuer credit gated by compliance. */
+  reservedCoin: (process.env.RESERVED_COIN || 'AGO').toString().slice(0, 16).toUpperCase(),
+  /** Optional: instance ID for this deployment (used for compliance/manifest). If unset, first instance row is used. */
+  instanceId: process.env.INSTANCE_ID || null,
   enableFaucet: process.env.ENABLE_FAUCET === 'true',
   humanEmailDevReturnToken: process.env.HUMAN_EMAIL_DEV_RETURN_TOKEN === 'true',
   humanJwtSecret: process.env.HUMAN_JWT_SECRET || '',
@@ -23,6 +27,8 @@ const config = {
 
   // Public base URL for building X-Url-Callback sent to the service (e.g. https://api.agora.example.com or http://localhost:3000)
   agoraPublicUrl: (process.env.AGORA_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '') || `http://localhost:${Number(process.env.PORT) || 3000}`,
+  /** URL of the AGORA-CENTER (Central) — connection endpoint for registration, activation, and sync. Optional. */
+  agoraCenterUrl: (process.env.AGORA_CENTER_URL || process.env.CENTRAL_URL || '').replace(/\/$/, '') || null,
   // Webhook request in background: timeout in seconds before we close the socket (default 600 = 10 min)
   executePendingMaxSec: Number(process.env.EXECUTE_PENDING_MAX_SEC) || 600,
 

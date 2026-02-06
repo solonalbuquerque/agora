@@ -26,6 +26,9 @@ import Requests from './pages/Requests';
 import AuditLog from './pages/AuditLog';
 import Metrics from './pages/Metrics';
 import DataRetention from './pages/DataRetention';
+import Instance from './pages/Instance';
+import Bridge from './pages/Bridge';
+import ExportedServices from './pages/ExportedServices';
 
 function App() {
   return (
@@ -38,7 +41,10 @@ function App() {
         <Route path="humans" element={<Humans />} />
         <Route path="humans/:id" element={<HumanDetail />} />
         <Route path="services" element={<Services />} />
+        <Route path="services/exported" element={<ExportedServices />} />
         <Route path="services/:id" element={<ServiceDetail />} />
+        <Route path="instance" element={<Instance />} />
+        <Route path="bridge" element={<Bridge />} />
         <Route path="webhook-security" element={<WebhookSecurity />} />
         <Route path="circuit-breakers" element={<CircuitBreakers />} />
         <Route path="wallets" element={<Wallets />} />

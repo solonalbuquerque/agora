@@ -14,10 +14,13 @@ async function create(data) {
     output_schema = null,
     price_cents = 0,
     coin = 'AGOTEST',
+    export: exportFlag = false,
   } = data;
+  const visibility = exportFlag ? 'exported' : 'local';
+  const exportStatus = exportFlag ? 'active' : 'inactive';
   await query(
-    `INSERT INTO services (id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')`,
+    `INSERT INTO services (id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, visibility, export_status, exported_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12)`,
     [
       id,
       owner_agent_id,
@@ -28,6 +31,9 @@ async function create(data) {
       output_schema ? JSON.stringify(output_schema) : null,
       price_cents,
       (coin || 'AGOTEST').toString().slice(0, 16),
+      visibility,
+      exportStatus,
+      exportFlag ? new Date() : null,
     ]
   );
   return getById(id);
@@ -72,8 +78,18 @@ async function list(filters = {}) {
   const countRes = await query(`SELECT COUNT(*) as total FROM services${whereSql}`, params);
   const total = parseInt(countRes.rows[0]?.total || 0, 10);
   
+  if (filters.visibility) {
+    params.push(filters.visibility);
+    whereSql += ` AND visibility = $${i++}`;
+  }
+  if (filters.export_status) {
+    params.push(filters.export_status);
+    whereSql += ` AND export_status = $${i++}`;
+  }
+
   // Get rows with pagination
-  const sql = `SELECT id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, created_at
+  const sql = `SELECT id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status,
+               visibility, export_status, exported_at, suspended_at, export_reason, created_at
                FROM services${whereSql} ORDER BY created_at DESC LIMIT $${i++} OFFSET $${i++}`;
   params.push(Number(limit) || 50, Number(offset) || 0);
   const res = await query(sql, params);
@@ -81,7 +97,7 @@ async function list(filters = {}) {
 }
 
 async function update(id, data) {
-  const allowed = ['name', 'description', 'webhook_url', 'input_schema', 'output_schema', 'price_cents', 'coin', 'status'];
+  const allowed = ['name', 'description', 'webhook_url', 'input_schema', 'output_schema', 'price_cents', 'coin', 'status', 'visibility', 'export_status', 'exported_at', 'suspended_at', 'export_reason'];
   const updates = [];
   const values = [];
   let i = 1;
@@ -95,14 +111,48 @@ async function update(id, data) {
       if (!['active', 'paused', 'removed'].includes(val)) continue;
     }
     if (key === 'coin' && val != null) val = String(val).slice(0, 16);
+    if (key === 'exported_at' || key === 'suspended_at') {
+      // leave as provided (Date or null)
+    }
     updates.push(`${key} = $${i++}`);
     values.push(val);
   }
   if (updates.length === 0) return getById(id);
   values.push(id);
-  const sql = `UPDATE services SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, created_at`;
+  const sql = `UPDATE services SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, visibility, export_status, exported_at, suspended_at, export_reason, created_at`;
   const res = await query(sql, values);
   return res.rows[0] || null;
+}
+
+async function setExport(id, exportFlag) {
+  if (exportFlag) {
+    await query(
+      `UPDATE services SET visibility = 'exported', export_status = 'active', exported_at = NOW(), suspended_at = NULL, export_reason = NULL WHERE id = $1`,
+      [id]
+    );
+  } else {
+    await query(
+      `UPDATE services SET visibility = 'local', export_status = 'inactive', suspended_at = NULL, export_reason = NULL WHERE id = $1`,
+      [id]
+    );
+  }
+  return getById(id);
+}
+
+async function suspendAllExported(reason) {
+  const res = await query(
+    `UPDATE services SET export_status = 'suspended', suspended_at = NOW(), export_reason = $1 WHERE visibility = 'exported' AND export_status = 'active' RETURNING id`,
+    [reason || 'INSTANCE_NOT_COMPLIANT']
+  );
+  return res.rows.length;
+}
+
+async function resumeExport(id) {
+  await query(
+    `UPDATE services SET export_status = 'active', suspended_at = NULL, export_reason = NULL WHERE id = $1 AND visibility = 'exported'`,
+    [id]
+  );
+  return getById(id);
 }
 
 module.exports = {
@@ -110,4 +160,7 @@ module.exports = {
   getById,
   list,
   update,
+  setExport,
+  suspendAllExported,
+  resumeExport,
 };

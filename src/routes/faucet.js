@@ -8,6 +8,7 @@ const { badRequest } = require('../lib/errors');
 const { incrRateLimit } = require('../lib/redis');
 const { getFaucetDailyLimitCents } = require('../lib/trustLevels');
 const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
+const { isReservedCoin } = require('../lib/compliance');
 
 const rateLimitFaucet = createRateLimitPreHandler({ scope: 'ip', keyPrefix: 'faucet' });
 const FAUCET_WINDOW_SEC = 86400; // 1 day
@@ -71,6 +72,9 @@ async function faucetRoutes(fastify) {
     if (agentLimit.over) return reply.code(429).send({ ok: false, code: 'RATE_LIMIT', message: 'Daily faucet limit per agent exceeded' });
     if (ipLimit.over) return reply.code(429).send({ ok: false, code: 'RATE_LIMIT', message: 'Daily faucet limit per IP exceeded' });
     const coin = config.defaultCoin || 'AGOTEST';
+    if (isReservedCoin(coin)) {
+      return reply.code(403).send({ ok: false, code: 'RESERVED_COIN_MINT_FORBIDDEN', message: 'AGO cannot be minted via faucet.' });
+    }
     await withTransaction(async (client) => {
       await walletsDb.ensureCoin(client, coin);
       await walletsDb.ensureWallet(client, agentId, coin);
