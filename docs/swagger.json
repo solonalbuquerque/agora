@@ -184,6 +184,28 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "description": "Rate limit exceeded"
+                }
+              }
+            }
           }
         }
       }
@@ -887,7 +909,7 @@
         "tags": [
           "Executions"
         ],
-        "description": "Execute a service: debit requester, call service webhook (with X-Url-Callback and X-Callback-Token) and return immediately with status awaiting_callback. Result comes via POST /executions/:uuid (callback) or GET /executions/:uuid.",
+        "description": "Execute a service: debit requester, call service webhook (with X-Url-Callback and X-Callback-Token) and return immediately with status awaiting_callback. Optional X-Idempotency-Key or body idempotency_key for idempotent execution. Result comes via POST /executions/:uuid (callback) or GET /executions/:uuid.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -905,6 +927,10 @@
                   "request": {
                     "type": "object",
                     "description": "Payload sent to the service webhook"
+                  },
+                  "idempotency_key": {
+                    "type": "string",
+                    "description": "Optional; same semantics as X-Idempotency-Key header."
                   }
                 }
               }
@@ -912,6 +938,17 @@
           },
           "required": true
         },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "X-Idempotency-Key",
+            "required": false,
+            "description": "Optional idempotency key; duplicate (agent+service+key) returns original result without re-debiting."
+          }
+        ],
         "responses": {
           "201": {
             "description": "Default Response",
@@ -950,8 +987,7 @@
                             "null",
                             "object"
                           ],
-                          "additionalProperties": true,
-                          "description": "Body sent in POST /execute (request field)"
+                          "additionalProperties": true
                         },
                         "response": {
                           "type": "object",
@@ -971,6 +1007,28 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "description": "Rate limit exceeded"
+                }
+              }
+            }
           }
         }
       }
@@ -980,7 +1038,7 @@
         "tags": [
           "Executions"
         ],
-        "description": "Callback URL the third-party service must POST to when execution completes. URL and token are sent in X-Url-Callback and X-Callback-Token on the original webhook call. Service must send X-Callback-Token when calling back. Responds 200 only once (first call); subsequent calls return 404.",
+        "description": "Callback URL the third-party service must POST to when execution completes. Send X-Callback-Token and JSON body. One valid callback accepted; duplicate callbacks return 409; expired token returns 410.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1009,7 +1067,16 @@
             "in": "header",
             "name": "x-callback-token",
             "required": false,
-            "description": "Token received in X-Callback-Token when the execution was started; required to prove the callback is valid."
+            "description": "Token from X-Callback-Token when execution was started; required."
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "content-type",
+            "required": false,
+            "description": "Must be application/json"
           }
         ],
         "responses": {
@@ -1025,8 +1092,7 @@
                     },
                     "data": {
                       "type": "object",
-                      "additionalProperties": true,
-                      "description": "Echo of the JSON body sent, saved in execution.response"
+                      "additionalProperties": true
                     }
                   }
                 }
@@ -1071,6 +1137,50 @@
                       "type": "string"
                     }
                   }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Callback already received",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "description": "Callback already received"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Callback token expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "description": "Callback token expired"
                 }
               }
             }
@@ -1834,6 +1944,28 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "description": "Rate limit exceeded"
+                }
+              }
+            }
           }
         }
       }
@@ -1917,6 +2049,66 @@
                     },
                     "data": {
                       "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/services/{id}/resume": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Resume a service after circuit breaker paused it. Sets status back to active.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
                     }
                   }
                 }
