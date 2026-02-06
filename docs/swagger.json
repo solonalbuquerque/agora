@@ -6,6 +6,25 @@
     "version": "1.0.0"
   },
   "components": {
+    "parameters": {
+      "XRequestId": {
+        "name": "X-Request-Id",
+        "in": "header",
+        "description": "Optional request correlation ID (UUID). If provided, it is reused; otherwise the server generates one. Returned in response header on all responses.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "headers": {
+      "XRequestIdResponse": {
+        "description": "Request correlation ID (same as request or generated).",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
     "schemas": {}
   },
   "paths": {
@@ -98,7 +117,7 @@
         "tags": [
           "Health"
         ],
-        "description": "Health check for load balancers and Docker.",
+        "description": "Liveness: process is alive. Does NOT check DB or Redis.",
         "responses": {
           "200": {
             "description": "Default Response",
@@ -125,6 +144,82 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": [
+          "Observability"
+        ],
+        "description": "Readiness: DB, Redis (if configured), and migrations. Returns 503 if not ready.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string"
+                        },
+                        "checks": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "checks": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [
+          "Observability"
+        ],
+        "description": "Prometheus-style metrics (when ENABLE_METRICS=true).",
+        "responses": {
+          "200": {
+            "description": "Default Response"
           }
         }
       }
@@ -2118,6 +2213,116 @@
         }
       }
     },
+    "/admin/audit": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "List audit events. Filters: actor_type, actor_id, event_type, from_date, to_date, limit, offset.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "human",
+                "admin",
+                "issuer",
+                "system"
+              ]
+            },
+            "in": "query",
+            "name": "actor_type",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "actor_id",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "event_type",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "in": "query",
+            "name": "from_date",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "in": "query",
+            "name": "to_date",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "in": "query",
+            "name": "offset",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "rows": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/faucet": {
       "post": {
         "tags": [
@@ -2510,6 +2715,10 @@
     {
       "name": "Instance",
       "description": "Instance registration and activation. Status with X-Instance-Token or X-Admin-Token."
+    },
+    {
+      "name": "Observability",
+      "description": "Health, readiness, and metrics (B2)."
     }
   ]
 }
