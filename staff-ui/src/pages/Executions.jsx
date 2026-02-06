@@ -106,6 +106,9 @@ export default function Executions() {
                 <th>Requester</th>
                 <th>Service</th>
                 <th>Status</th>
+                <th>Idempotency key</th>
+                <th>Request ID</th>
+                <th>Callback status</th>
                 <th>Latency (ms)</th>
                 <th>Date</th>
               </tr>
@@ -139,6 +142,9 @@ export default function Executions() {
                       {r.status}
                     </span>
                   </td>
+                  <td><code style={{ fontSize: '0.75rem' }}>{r.idempotency_key ? `${r.idempotency_key.slice(0, 12)}...` : '-'}</code></td>
+                  <td><code style={{ fontSize: '0.75rem' }}>{r.request_id ? `${r.request_id.slice(0, 10)}...` : '-'}</code></td>
+                  <td>{r.callback_status ?? '-'}</td>
                   <td>{r.latency_ms ?? '-'}</td>
                   <td>{r.created_at ? new Date(r.created_at).toLocaleString() : '-'}</td>
                 </tr>

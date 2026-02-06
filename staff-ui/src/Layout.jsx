@@ -4,6 +4,12 @@ import { api } from './api';
 
 const navSections = [
   {
+    title: 'Dashboard',
+    items: [
+      { to: 'dashboard', label: 'Dashboard' },
+    ],
+  },
+  {
     title: 'Agents',
     items: [
       { to: 'agents', label: 'List Agents' },
@@ -20,6 +26,8 @@ const navSections = [
     items: [
       { to: 'services', label: 'List Services' },
       { to: 'executions', label: 'Executions' },
+      { to: 'webhook-security', label: 'Webhook Security' },
+      { to: 'circuit-breakers', label: 'Circuit Breakers' },
     ],
   },
   {
@@ -37,10 +45,20 @@ const navSections = [
     ],
   },
   {
+    title: 'Executions',
+    items: [
+      { to: 'callbacks', label: 'Callbacks' },
+    ],
+  },
+  {
     title: 'System',
     items: [
-      { to: 'dashboard', label: 'Dashboard' },
-      { to: 'statistics', label: 'Statistics' },
+      { to: 'security', label: 'Security Overview' },
+      { to: 'rate-limits', label: 'Rate Limits' },
+      { to: 'requests', label: 'Requests' },
+      { to: 'audit', label: 'Audit Log' },
+      { to: 'metrics', label: 'Metrics' },
+      { to: 'data-retention', label: 'Data Retention' },
       { to: 'config', label: 'Settings' },
     ],
   },

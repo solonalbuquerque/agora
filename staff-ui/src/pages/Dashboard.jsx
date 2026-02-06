@@ -2,17 +2,31 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import PageHeader from '../components/PageHeader';
 
+const ENTITY_LABELS = {
+  agents: 'Agents',
+  humans: 'Humans',
+  services: 'Services',
+  executions: 'Executions',
+  ledger_entries: 'Ledger entries',
+};
+
 export default function Dashboard() {
   const [data, setData] = useState(null);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const load = () => {
     setLoading(true);
     setError(null);
-    api
-      .dashboard()
-      .then((r) => setData(r?.data ?? null))
+    Promise.all([
+      api.dashboard().then((r) => r?.data ?? null).catch(() => null),
+      api.statistics().then((r) => r?.data ?? null).catch(() => null),
+    ])
+      .then(([dash, stat]) => {
+        setData(dash);
+        setStats(stat);
+      })
       .catch((e) => setError(e?.message ?? 'Failed to load dashboard'))
       .finally(() => setLoading(false));
   };
@@ -30,20 +44,58 @@ export default function Dashboard() {
     );
   }
 
-  if (!data) {
+  if (!data && !stats) {
     return <PageHeader title="Dashboard" onReload={load} loading={loading} />;
   }
 
-  const exec24 = data.executions_last_24h || {};
-  const total24 = data.executions_total_24h ?? 0;
-  const errorRate = data.error_rate_pct ?? 0;
-  const paused = data.paused_services_count ?? 0;
-  const recentLedger = data.recent_ledger || [];
-  const recentAudit = data.recent_audit || [];
+  const exec24 = data?.executions_last_24h || {};
+  const total24 = data?.executions_total_24h ?? 0;
+  const errorRate = data?.error_rate_pct ?? 0;
+  const paused = data?.paused_services_count ?? 0;
+  const recentLedger = data?.recent_ledger || [];
+  const recentAudit = data?.recent_audit || [];
+  const totals = stats?.totals || {};
+  const last24h = stats?.last_24h || {};
+  const yesterday = stats?.yesterday || {};
+  const pctVsYesterday = stats?.pct_vs_yesterday || {};
 
   return (
     <>
       <PageHeader title="Dashboard" onReload={load} loading={loading} />
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Entity counts</h3>
+        <p className="muted">Total, last 24 hours, yesterday, and % change vs yesterday.</p>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Entity</th>
+              <th>Total</th>
+              <th>Last 24h</th>
+              <th>Yesterday</th>
+              <th>% vs yesterday</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.keys(ENTITY_LABELS).map((key) => (
+              <tr key={key}>
+                <td>{ENTITY_LABELS[key]}</td>
+                <td>{totals[key] ?? 0}</td>
+                <td>{last24h[key] ?? 0}</td>
+                <td>{yesterday[key] ?? 0}</td>
+                <td>
+                  {pctVsYesterday[key] != null ? (
+                    <span className={pctVsYesterday[key] >= 0 ? 'success' : ''}>
+                      {pctVsYesterday[key] > 0 ? '+' : ''}{pctVsYesterday[key]}%
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Last 24 hours</h3>
         <table className="table">

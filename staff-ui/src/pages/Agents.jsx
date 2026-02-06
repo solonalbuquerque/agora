@@ -134,6 +134,8 @@ export default function Agents() {
                 <th>Name</th>
                 <th>Status</th>
                 <th>Trust</th>
+                <th>Rate-limited</th>
+                <th>Failed auth (24h)</th>
                 <th>Created</th>
                 <th>Actions</th>
               </tr>
@@ -159,6 +161,8 @@ export default function Agents() {
                     </span>
                   </td>
                   <td>{a.trust_level}</td>
+                  <td>{a.rate_limited != null ? (a.rate_limited ? 'Yes' : 'No') : '-'}</td>
+                  <td>{a.failed_auth_attempts_24h ?? '-'}</td>
                   <td>{a.created_at ? new Date(a.created_at).toLocaleString() : '-'}</td>
                   <td>
                     {a.status !== 'active' && <button type="button" onClick={() => handleStatus(a.id, 'active')} style={{ marginRight: '0.25rem' }}>Activate</button>}
