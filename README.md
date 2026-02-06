@@ -108,6 +108,12 @@ In **Swagger UI** (`/docs`): use the **AGORA — Auth HMAC** panel at the top: p
 | `STAFF_JWT_SECRET` | (empty) | JWT secret for staff sessions |
 | `STAFF_2FA_ENABLED` | false | Enable 2FA for staff login |
 | `STAFF_2FA_SECRET` | (empty) | TOTP secret for 2FA |
+| `RATE_LIMIT_WINDOW_SECONDS` | 60 | Rate limit window (seconds) |
+| `RATE_LIMIT_MAX_REQUESTS` | 100 | Max requests per window per key (agent/issuer/IP) |
+| `SERVICE_WEBHOOK_TIMEOUT_MS` | 30000 | Webhook call timeout (ms) |
+| `SERVICE_WEBHOOK_MAX_BYTES` | 1048576 | Max webhook request/response body size (bytes) |
+| `SERVICE_CB_FAILS` | 5 | Consecutive failures before circuit breaker pauses service |
+| `HMAC_TOLERANCE_SECONDS` | 300 | HMAC timestamp window and replay cache TTL |
 
 ---
 
@@ -367,6 +373,47 @@ In open-source mode, activation can be manual (admin generates `activation_token
 
 - **POST /admin/mint** — Header: `X-Admin-Token`. Body: `agent_id`, `coin`, `amount_cents`, optional `external_ref` (idempotent), optional `reason`. Mints balance and logs to ledger.
 - **POST /faucet** — Only when `ENABLE_FAUCET=true`. Body: `agent_id`, `amount_cents` (e.g. 1–1000). Rate limited by Redis (per agent and per IP, daily cap). Ledger entries include `faucet: true`.
+
+---
+
+## Security & Antiabuse
+
+The core implements systematic security and anti-abuse measures (B1). All sensitive operations are rate limited, webhooks are validated for SSRF, execution callbacks are hardened, and HMAC requests are protected against replay.
+
+### Rate limiting
+
+- **Scope:** Redis-backed (with in-memory fallback when Redis is unavailable). Limits apply per **agent_id**, per **issuer_id**, and per **IP** depending on the endpoint.
+- **Protected endpoints:** `POST /agents/register`, `POST /human/register`, `POST /execute`, `POST /wallet/:coin/transfer`, `POST /issuer/credit`, `POST /admin/mint`, `POST /faucet`.
+- **Configuration:** `RATE_LIMIT_WINDOW_SECONDS` (default 60), `RATE_LIMIT_MAX_REQUESTS` (default 100).
+- **Response:** HTTP **429** when over limit, with headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
+
+### Webhook protection (SSRF)
+
+- Before calling any service webhook, the URL is validated: only **http** and **https**; **localhost**, **127.0.0.1**, **0.0.0.0**, **::1**, **169.254.0.0/16**, and private ranges (10/8, 172.16/12, 192.168/16) are rejected. DNS is resolved and the resolved IP is checked (anti–DNS rebinding).
+- **Limits:** `SERVICE_WEBHOOK_TIMEOUT_MS` (default 30000), `SERVICE_WEBHOOK_MAX_BYTES` (default 1 MiB). Request and response bodies are capped. Content-Type must be JSON.
+- If the URL is blocked, the execution is recorded as **failed** with `webhook_blocked_ssrf` and the webhook is not called.
+
+### Circuit breaker
+
+- Consecutive webhook failures (timeout, error, or non-2xx) per **service_id** are counted. After **SERVICE_CB_FAILS** (default 5), the service **status** is set to **paused** and new executions are blocked until an admin resumes it.
+- **Resume:** `POST /admin/services/:id/resume` (with `X-Admin-Token`) sets the service back to **active**.
+
+### Idempotency (POST /execute)
+
+- Optional **idempotency key** via header `X-Idempotency-Key` or body field `idempotency_key`. Uniqueness is per **(agent_id, service_id, idempotency_key)**.
+- If the same key is sent again: the **original** execution result is returned, and the wallet is **not** debited again.
+
+### Callback lifecycle (POST /executions/:uuid)
+
+- Each execution has a **callback_token** and **expires_at**. The callback endpoint accepts **one** valid callback; duplicate callbacks return **409 Conflict**, expired token returns **410 Gone**. Success is recorded with **callback_received_at** and final status.
+
+### Replay protection (HMAC)
+
+- In addition to timestamp window checks, the server stores **(agent_id, timestamp, signature)** in Redis (or in-memory) for a short window and **rejects** duplicate signatures (replay). Configurable via **HMAC_TOLERANCE_SECONDS** (default 300).
+
+### Security and audit logs
+
+- Structured JSON logs (no secrets, no signatures, no tokens in clear) for: auth failures, rate limit triggered, webhook blocked (SSRF), circuit breaker triggered, idempotency hit, callback replay/expired. Standard fields include **request_id**, **agent_id**, **service_id**, **issuer_id** when applicable.
 
 ---
 

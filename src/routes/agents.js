@@ -3,11 +3,15 @@
 const agentsDb = require('../db/agents');
 const { created, success } = require('../lib/responses');
 const { badRequest } = require('../lib/errors');
+const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
+
+const rateLimitRegister = createRateLimitPreHandler({ scope: 'ip', keyPrefix: 'agents_register' });
 
 async function agentsRoutes(fastify, opts) {
   const requireAuth = opts.requireAgentAuth || null;
 
   fastify.post('/register', {
+    preHandler: rateLimitRegister,
     schema: {
       tags: ['Agents'],
       description: 'Create a new pseudonymous agent. The secret is returned only once; store it securely.',
@@ -33,6 +37,7 @@ async function agentsRoutes(fastify, opts) {
             },
           },
         },
+        429: { type: 'object', properties: { ok: { type: 'boolean' }, code: { type: 'string' }, message: { type: 'string' } }, description: 'Rate limit exceeded' },
       },
     },
   }, async (request, reply) => {

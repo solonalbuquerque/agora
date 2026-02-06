@@ -25,6 +25,18 @@ const config = {
   agoraPublicUrl: (process.env.AGORA_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '') || `http://localhost:${Number(process.env.PORT) || 3000}`,
   // Webhook request in background: timeout in seconds before we close the socket (default 600 = 10 min)
   executePendingMaxSec: Number(process.env.EXECUTE_PENDING_MAX_SEC) || 600,
+
+  // B1.1 Rate limiting (Redis with in-memory fallback)
+  rateLimitWindowSeconds: Number(process.env.RATE_LIMIT_WINDOW_SECONDS) || 60,
+  rateLimitMaxRequests: Number(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+
+  // B1.2 Webhook hardening
+  serviceWebhookTimeoutMs: Number(process.env.SERVICE_WEBHOOK_TIMEOUT_MS) || 30000,
+  serviceWebhookMaxBytes: Number(process.env.SERVICE_WEBHOOK_MAX_BYTES) || 1024 * 1024, // 1 MiB
+  serviceCbFails: Number(process.env.SERVICE_CB_FAILS) || 5,
+
+  // B1.5 HMAC replay protection
+  hmacToleranceSeconds: Number(process.env.HMAC_TOLERANCE_SECONDS) || 300, // 5 min
 };
 
 module.exports = config;

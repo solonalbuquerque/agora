@@ -39,9 +39,12 @@ function requireIssuerSignature() {
   };
 }
 
+const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
+const rateLimitIssuer = createRateLimitPreHandler({ scope: 'issuer', keyPrefix: 'issuer_credit' });
+
 async function issuerRoutes(fastify) {
   fastify.post('/credit', {
-    preHandler: requireIssuerSignature(),
+    preHandler: [requireIssuerSignature(), rateLimitIssuer],
     schema: {
       tags: ['Issuer'],
       description: 'Issue credit (mint) to an agent. Signed by issuer. external_ref required and idempotent.',

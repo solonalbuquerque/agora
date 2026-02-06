@@ -1,8 +1,10 @@
 'use strict';
 
 const crypto = require('crypto');
+const config = require('../config');
+const { isReplay, markSeen } = require('./security/hmacReplay');
 
-const TIMESTAMP_WINDOW_SEC = 5 * 60; // 5 minutes
+const TIMESTAMP_WINDOW_SEC = config.hmacToleranceSeconds;
 
 /**
  * Build the canonical signing payload for HMAC-SHA256.
@@ -28,7 +30,7 @@ function sign(secret, payload) {
 }
 
 /**
- * Verify timestamp is within the allowed window (e.g. 5 minutes from now).
+ * Verify timestamp is within the allowed window (HMAC_TOLERANCE_SECONDS).
  */
 function isTimestampValid(timestampStr) {
   const t = parseInt(timestampStr, 10);
@@ -44,14 +46,15 @@ function isTimestampValid(timestampStr) {
 async function verifySignature(agentId, timestamp, method, path, rawBody, signatureHex, getAgentSecret) {
   if (!agentId || !timestamp || !signatureHex) return null;
   if (!isTimestampValid(timestamp)) return null;
+  if (await isReplay(agentId, timestamp, signatureHex)) return null;
   const secret = await getAgentSecret(agentId);
   if (!secret) return null;
   const bodyHash = sha256Hex(rawBody);
   const payload = buildSigningPayload(agentId, timestamp, method, path, bodyHash);
   const expected = sign(secret, payload);
-  return crypto.timingSafeEqual(Buffer.from(signatureHex, 'hex'), Buffer.from(expected, 'hex'))
-    ? agentId
-    : null;
+  const valid = crypto.timingSafeEqual(Buffer.from(signatureHex, 'hex'), Buffer.from(expected, 'hex'));
+  if (valid) await markSeen(agentId, timestamp, signatureHex);
+  return valid ? agentId : null;
 }
 
 /**
@@ -59,6 +62,7 @@ async function verifySignature(agentId, timestamp, method, path, rawBody, signat
  * Injects request.agentId when valid. getAgentSecret(agentId) must return the agent's secret.
  */
 function requireAgentAuth(getAgentSecret) {
+  const { securityLog } = require('./security/securityLog');
   return async function preHandler(request, reply) {
     const agentId = request.headers['x-agent-id'];
     const timestamp = request.headers['x-timestamp'];
@@ -68,6 +72,7 @@ function requireAgentAuth(getAgentSecret) {
     const rawBody = request.rawBody != null ? request.rawBody : (request.body ? JSON.stringify(request.body) : '');
     const verified = await verifySignature(agentId, timestamp, method, path, rawBody, signature, getAgentSecret);
     if (!verified) {
+      securityLog(request, 'auth_failed', { agent_id: agentId || null });
       return reply.code(401).send({ ok: false, code: 'UNAUTHORIZED', message: 'Invalid or missing agent signature' });
     }
     request.agentId = verified;

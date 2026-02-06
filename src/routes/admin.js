@@ -4,8 +4,10 @@ const config = require('../config');
 const { query, withTransaction } = require('../db/index');
 const walletsDb = require('../db/wallets');
 const issuersDb = require('../db/issuers');
+const servicesDb = require('../db/services');
 const { created, success } = require('../lib/responses');
-const { badRequest, unauthorized, forbidden, conflict } = require('../lib/errors');
+const { badRequest, unauthorized, forbidden, conflict, notFound } = require('../lib/errors');
+const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
 
 function requireAdmin(request, reply, done) {
   const token = request.headers['x-admin-token'];
@@ -15,7 +17,10 @@ function requireAdmin(request, reply, done) {
   done();
 }
 
+const rateLimitAdmin = createRateLimitPreHandler({ scope: 'ip', keyPrefix: 'admin' });
+
 async function adminRoutes(fastify) {
+  fastify.addHook('preHandler', rateLimitAdmin);
   fastify.addHook('preHandler', requireAdmin);
 
   fastify.post('/mint', {
@@ -54,6 +59,7 @@ async function adminRoutes(fastify) {
             },
           },
         },
+        429: { type: 'object', properties: { ok: { type: 'boolean' }, code: { type: 'string' }, message: { type: 'string' } }, description: 'Rate limit exceeded' },
       },
     },
   }, async (request, reply) => {
@@ -124,6 +130,24 @@ async function adminRoutes(fastify) {
     const issuer = await issuersDb.revoke(request.params.id);
     if (!issuer) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Issuer not found' });
     return success(reply, issuer);
+  });
+
+  fastify.post('/services/:id/resume', {
+    schema: {
+      tags: ['Admin'],
+      description: 'Resume a service after circuit breaker paused it. Sets status back to active.',
+      params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+      response: {
+        200: { type: 'object', properties: { ok: { type: 'boolean' }, data: { type: 'object' } } },
+        404: { type: 'object', properties: { ok: { type: 'boolean' }, code: { type: 'string' }, message: { type: 'string' } } },
+      },
+    },
+  }, async (request, reply) => {
+    const serviceId = request.params.id;
+    const service = await servicesDb.getById(serviceId);
+    if (!service) return notFound(reply, 'Service not found');
+    const updated = await servicesDb.update(serviceId, { status: 'active' });
+    return success(reply, updated);
   });
 }
 

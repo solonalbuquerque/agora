@@ -7,10 +7,14 @@ const { badRequest, unauthorized, forbidden } = require('../lib/errors');
 const config = require('../config');
 const { requireHumanAuth, sign } = require('../lib/humanAuth');
 const { setNonce, getAndDelNonce } = require('../lib/redis');
+const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
 const crypto = require('crypto');
+
+const rateLimitRegister = createRateLimitPreHandler({ scope: 'ip', keyPrefix: 'human_register' });
 
 async function humanRoutes(fastify) {
   fastify.post('/register', {
+    preHandler: rateLimitRegister,
     schema: {
       tags: ['Human'],
       description: 'Register a human by email. Sends verification (stub); in dev may return token.',

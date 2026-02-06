@@ -8,15 +8,45 @@ function generateCallbackToken() {
   return crypto.randomBytes(24).toString('hex');
 }
 
-async function create(client, requester_agent_id, service_id, requestPayload) {
+/** Default callback token validity: 24 hours from now */
+function defaultCallbackExpiresAt() {
+  const d = new Date();
+  d.setHours(d.getHours() + 24);
+  return d;
+}
+
+async function create(client, requester_agent_id, service_id, requestPayload, idempotencyKey = null) {
   const callbackToken = generateCallbackToken();
+  const expiresAt = defaultCallbackExpiresAt();
   const res = await client.query(
-    `INSERT INTO executions (uuid, requester_agent_id, service_id, status, request, callback_token)
-     VALUES ($1, $2, $3, 'pending', $4, $5)
-     RETURNING id, uuid, requester_agent_id, service_id, status, request, callback_token, created_at`,
-    [uuidv4(), requester_agent_id, service_id, requestPayload ? JSON.stringify(requestPayload) : null, callbackToken]
+    `INSERT INTO executions (uuid, requester_agent_id, service_id, status, request, callback_token, idempotency_key, callback_token_expires_at)
+     VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7)
+     RETURNING id, uuid, requester_agent_id, service_id, status, request, callback_token, callback_token_expires_at, idempotency_key, created_at`,
+    [uuidv4(), requester_agent_id, service_id, requestPayload ? JSON.stringify(requestPayload) : null, callbackToken, idempotencyKey || null, expiresAt]
   );
   return res.rows[0];
+}
+
+/** Find existing execution by idempotency key (agent + service + key). Returns row without callback_token. Use withTransaction if you need it inside a transaction. */
+async function findByIdempotency(client, requester_agent_id, service_id, idempotency_key) {
+  if (!idempotency_key) return null;
+  const res = await client.query(
+    `SELECT id, uuid, requester_agent_id, service_id, status, request, response, latency_ms, created_at
+     FROM executions WHERE requester_agent_id = $1 AND service_id = $2 AND idempotency_key = $3`,
+    [requester_agent_id, service_id, idempotency_key]
+  );
+  return res.rows[0] || null;
+}
+
+/** Same as findByIdempotency but using pool query (no transaction). */
+async function findByIdempotencyReadOnly(requester_agent_id, service_id, idempotency_key) {
+  if (!idempotency_key) return null;
+  const res = await query(
+    `SELECT id, uuid, requester_agent_id, service_id, status, request, response, latency_ms, created_at
+     FROM executions WHERE requester_agent_id = $1 AND service_id = $2 AND idempotency_key = $3`,
+    [requester_agent_id, service_id, idempotency_key]
+  );
+  return res.rows[0] || null;
 }
 
 async function updateResult(client, id, status, response, latencyMs) {
@@ -26,10 +56,10 @@ async function updateResult(client, id, status, response, latencyMs) {
   );
 }
 
-/** Only update if status is still pending or awaiting_callback (idempotent: first result wins). Returns true if updated. */
+/** Only update if status is still pending or awaiting_callback (idempotent: first result wins). Sets callback_received_at. Returns true if updated. */
 async function updateResultIfPending(client, id, status, response, latencyMs) {
   const res = await client.query(
-    `UPDATE executions SET status = $1, response = $2, latency_ms = $3
+    `UPDATE executions SET status = $1, response = $2, latency_ms = $3, callback_received_at = NOW()
      WHERE id = $4 AND status IN ('pending', 'awaiting_callback')
      RETURNING id`,
     [status, response ? JSON.stringify(response) : null, latencyMs, id]
@@ -54,10 +84,12 @@ async function setAwaitingCallback(id) {
   return res.rowCount > 0;
 }
 
-/** Returns execution including callback_token (for callback verification). Do not expose callback_token to API responses. */
+/** Returns execution including callback_token, callback_token_expires_at, callback_received_at (for callback verification). Do not expose callback_token to API responses. */
 async function getByUuid(uuid) {
   const res = await query(
-    'SELECT id, uuid, requester_agent_id, service_id, status, request, response, latency_ms, callback_token, created_at FROM executions WHERE uuid = $1',
+    `SELECT id, uuid, requester_agent_id, service_id, status, request, response, latency_ms, callback_token,
+            callback_token_expires_at, callback_received_at, created_at
+     FROM executions WHERE uuid = $1`,
     [uuid]
   );
   return res.rows[0] || null;
@@ -135,6 +167,8 @@ async function listAll(filters = {}) {
 
 module.exports = {
   create,
+  findByIdempotency,
+  findByIdempotencyReadOnly,
   updateResult,
   updateResultIfPending,
   setAwaitingCallback,

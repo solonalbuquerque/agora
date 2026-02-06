@@ -8,18 +8,26 @@ const walletsDb = require('../db/wallets');
 const servicesDb = require('../db/services');
 const executionsDb = require('../db/executions');
 const { created, success, list } = require('../lib/responses');
-const { badRequest, notFound, forbidden, unauthorized } = require('../lib/errors');
+const { badRequest, notFound, forbidden, unauthorized, conflict, gone } = require('../lib/errors');
+const { validateWebhookUrl } = require('../lib/security/webhookValidation');
+const { recordFailure, recordSuccess } = require('../lib/security/circuitBreaker');
+const { securityLog } = require('../lib/security/securityLog');
+const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
 const DEFAULT_COIN = 'AGOTEST';
 
-/** Timeout for the webhook request in background (we don't wait for it). */
-const WEBHOOK_BACKGROUND_TIMEOUT_MS = (config.executePendingMaxSec ?? 600) * 1000;
+const timeoutMs = config.serviceWebhookTimeoutMs || 30000;
+const maxBytes = config.serviceWebhookMaxBytes || 1024 * 1024;
 
-/** POST to webhook with optional extra headers (e.g. X-Url-Callback). */
-function httpRequest(url, body, timeoutMs = 30000, extraHeaders = {}) {
+/** POST to webhook with timeout, max response size, and Content-Type: application/json. */
+function httpRequest(webhookUrl, body, timeoutMsVal, maxBytesVal, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
-    const u = new URL(url);
+    const u = new URL(webhookUrl);
     const isHttps = u.protocol === 'https:';
     const headers = { 'Content-Type': 'application/json', ...extraHeaders };
+    const bodyStr = JSON.stringify(body || {});
+    if (Buffer.byteLength(bodyStr, 'utf8') > maxBytesVal) {
+      return reject(new Error('Request body exceeds max size'));
+    }
     const options = {
       hostname: u.hostname,
       port: u.port || (isHttps ? 443 : 80),
@@ -29,7 +37,15 @@ function httpRequest(url, body, timeoutMs = 30000, extraHeaders = {}) {
     };
     const req = (isHttps ? https : http).request(options, (res) => {
       const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
+      let totalLength = 0;
+      res.on('data', (chunk) => {
+        totalLength += chunk.length;
+        if (totalLength > maxBytesVal) {
+          req.destroy();
+          return reject(new Error('Response exceeds max size'));
+        }
+        chunks.push(chunk);
+      });
       res.on('end', () => {
         const data = Buffer.concat(chunks).toString('utf8');
         let parsed = null;
@@ -42,11 +58,11 @@ function httpRequest(url, body, timeoutMs = 30000, extraHeaders = {}) {
       });
     });
     req.on('error', reject);
-    req.setTimeout(timeoutMs, () => {
+    req.setTimeout(timeoutMsVal, () => {
       req.destroy();
       reject(new Error('Webhook timeout'));
     });
-    req.write(JSON.stringify(body || {}));
+    req.write(bodyStr);
     req.end();
   });
 }
@@ -59,17 +75,26 @@ async function executionsRoutes(fastify, opts) {
 
   const baseUrl = config.agoraPublicUrl || `http://localhost:${config.port || 3000}`;
 
+  const rateLimitByAgent = createRateLimitPreHandler({ scope: 'agent', keyPrefix: 'execute' });
+
   fastify.post('/execute', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, rateLimitByAgent],
     schema: {
       tags: ['Executions'],
-      description: 'Execute a service: debit requester, call service webhook (with X-Url-Callback and X-Callback-Token) and return immediately with status awaiting_callback. Result comes via POST /executions/:uuid (callback) or GET /executions/:uuid.',
+      description: 'Execute a service: debit requester, call service webhook (with X-Url-Callback and X-Callback-Token) and return immediately with status awaiting_callback. Optional X-Idempotency-Key or body idempotency_key for idempotent execution. Result comes via POST /executions/:uuid (callback) or GET /executions/:uuid.',
+      headers: {
+        type: 'object',
+        properties: {
+          'X-Idempotency-Key': { type: 'string', description: 'Optional idempotency key; duplicate (agent+service+key) returns original result without re-debiting.' },
+        },
+      },
       body: {
         type: 'object',
         required: ['service_id', 'request'],
         properties: {
           service_id: { type: 'string', format: 'uuid' },
           request: { type: 'object', description: 'Payload sent to the service webhook' },
+          idempotency_key: { type: 'string', description: 'Optional; same semantics as X-Idempotency-Key header.' },
         },
       },
       response: {
@@ -85,7 +110,7 @@ async function executionsRoutes(fastify, opts) {
                 requester_agent_id: { type: 'string', format: 'uuid' },
                 service_id: { type: 'string', format: 'uuid' },
                 status: { type: 'string', description: 'pending | awaiting_callback | success | failed' },
-                request: { type: ['object', 'null'], additionalProperties: true, description: 'Body sent in POST /execute (request field)' },
+                request: { type: ['object', 'null'], additionalProperties: true },
                 response: { type: 'object', nullable: true },
                 latency_ms: { type: 'integer', nullable: true },
                 created_at: { type: 'string', format: 'date-time' },
@@ -93,48 +118,90 @@ async function executionsRoutes(fastify, opts) {
             },
           },
         },
+        429: { type: 'object', properties: { ok: { type: 'boolean' }, code: { type: 'string' }, message: { type: 'string' } }, description: 'Rate limit exceeded' },
       },
     },
   }, async (request, reply) => {
     const requesterAgentId = request.agentId;
-    const { service_id: serviceId, request: requestPayload } = request.body || {};
-    if (!serviceId) {
-      return badRequest(reply, 'service_id is required');
-    }
+    const body = request.body || {};
+    const { service_id: serviceId, request: requestPayload } = body;
+    const idempotencyKey = request.headers['x-idempotency-key'] || body.idempotency_key || null;
+
+    if (!serviceId) return badRequest(reply, 'service_id is required');
+
     const service = await servicesDb.getById(serviceId);
-    if (!service) {
-      return notFound(reply, 'Service not found');
-    }
+    if (!service) return notFound(reply, 'Service not found');
     if (service.status !== 'active') {
       return badRequest(reply, 'Service is not active');
     }
+
     const price = Number(service.price_cents) || 0;
     const coin = (service.coin || DEFAULT_COIN).toString().slice(0, 16);
 
     let executionRow;
+    const existing = idempotencyKey
+      ? await executionsDb.findByIdempotencyReadOnly(requesterAgentId, serviceId, idempotencyKey)
+      : null;
+    if (existing) {
+      request.serviceId = serviceId;
+      securityLog(request, 'idempotency_hit', { service_id: serviceId });
+      const row = await executionsDb.getById(existing.id);
+      return created(reply, row);
+    }
+
     await withTransaction(async (client) => {
-      // Criar execução primeiro para ter o uuid
-      executionRow = await executionsDb.create(client, requesterAgentId, serviceId, requestPayload);
+      executionRow = await executionsDb.create(client, requesterAgentId, serviceId, requestPayload, idempotencyKey);
       if (price > 0) {
-        // Débito com execution_uuid no metadata
-        await walletsDb.debit(client, requesterAgentId, coin, price, { 
-          service_id: serviceId, 
+        await walletsDb.debit(client, requesterAgentId, coin, price, {
+          service_id: serviceId,
           type: 'execution',
-          execution_uuid: executionRow.uuid 
+          execution_uuid: executionRow.uuid,
         });
       }
     });
+
+    const validation = await validateWebhookUrl(service.webhook_url);
+    if (!validation.ok) {
+      request.serviceId = serviceId;
+      securityLog(request, 'webhook_blocked_ssrf', { reason: validation.reason, service_id: serviceId });
+      const errPayload = { error: 'webhook_blocked_ssrf', message: validation.reason };
+      await withTransaction(async (client) => {
+        await executionsDb.updateResult(client, executionRow.id, 'failed', errPayload, null);
+      });
+      const row = await executionsDb.getById(executionRow.id);
+      return created(reply, row);
+    }
 
     const ourCallbackUrl = `${baseUrl}/executions/${executionRow.uuid}`;
     httpRequest(
       service.webhook_url,
       requestPayload || {},
-      WEBHOOK_BACKGROUND_TIMEOUT_MS,
+      timeoutMs,
+      maxBytes,
       {
         'X-Url-Callback': ourCallbackUrl,
         'X-Callback-Token': executionRow.callback_token || '',
       }
-    ).catch(() => {});
+    )
+      .then((result) => {
+        if (result.statusCode >= 200 && result.statusCode < 300) {
+          recordSuccess(serviceId);
+        } else {
+          recordFailure(serviceId).then(({ opened }) => {
+            if (opened) {
+              servicesDb.update(serviceId, { status: 'paused' });
+              securityLog(request, 'circuit_breaker_triggered', { service_id: serviceId });
+            }
+          });
+        }
+      })
+      .catch(async () => {
+        const { opened } = await recordFailure(serviceId);
+        if (opened) {
+          await servicesDb.update(serviceId, { status: 'paused' });
+          securityLog(request, 'circuit_breaker_triggered', { service_id: serviceId });
+        }
+      });
 
     await executionsDb.setAwaitingCallback(executionRow.id);
     const row = await executionsDb.getById(executionRow.id);
@@ -144,11 +211,12 @@ async function executionsRoutes(fastify, opts) {
   fastify.post('/executions/:uuid', {
     schema: {
       tags: ['Executions'],
-      description: 'Callback URL the third-party service must POST to when execution completes. URL and token are sent in X-Url-Callback and X-Callback-Token on the original webhook call. Service must send X-Callback-Token when calling back. Responds 200 only once (first call); subsequent calls return 404.',
+      description: 'Callback URL the third-party service must POST to when execution completes. Send X-Callback-Token and JSON body. One valid callback accepted; duplicate callbacks return 409; expired token returns 410.',
       headers: {
         type: 'object',
         properties: {
-          'x-callback-token': { type: 'string', description: 'Token received in X-Callback-Token when the execution was started; required to prove the callback is valid.' },
+          'x-callback-token': { type: 'string', description: 'Token from X-Callback-Token when execution was started; required.' },
+          'content-type': { type: 'string', description: 'Must be application/json' },
         },
       },
       params: {
@@ -167,33 +235,32 @@ async function executionsRoutes(fastify, opts) {
           type: 'object',
           properties: {
             ok: { type: 'boolean' },
-            data: { type: 'object', additionalProperties: true, description: 'Echo of the JSON body sent, saved in execution.response' },
+            data: { type: 'object', additionalProperties: true },
           },
         },
-        401: {
-          type: 'object',
-          properties: {
-            ok: { type: 'boolean' },
-            code: { type: 'string' },
-            message: { type: 'string' },
-          },
-        },
-        404: {
-          type: 'object',
-          properties: {
-            ok: { type: 'boolean' },
-            code: { type: 'string' },
-            message: { type: 'string' },
-          },
-        },
+        401: { type: 'object', properties: { ok: { type: 'boolean' }, code: { type: 'string' }, message: { type: 'string' } } },
+        409: { type: 'object', properties: { ok: { type: 'boolean' }, code: { type: 'string' }, message: { type: 'string' } }, description: 'Callback already received' },
+        410: { type: 'object', properties: { ok: { type: 'boolean' }, code: { type: 'string' }, message: { type: 'string' } }, description: 'Callback token expired' },
+        404: { type: 'object', properties: { ok: { type: 'boolean' }, code: { type: 'string' }, message: { type: 'string' } } },
       },
     },
   }, async (request, reply) => {
     const { uuid } = request.params;
     const execution = await executionsDb.getByUuid(uuid);
-    if (!execution) {
-      return notFound(reply, 'Execution not found');
+    if (!execution) return notFound(reply, 'Execution not found');
+
+    if (execution.status === 'success' || execution.status === 'failed') {
+      securityLog(request, 'callback_replay', { execution_uuid: uuid });
+      return conflict(reply, 'Callback already received');
     }
+    if (execution.callback_token_expires_at) {
+      const expiresAt = new Date(execution.callback_token_expires_at).getTime();
+      if (Date.now() > expiresAt) {
+        securityLog(request, 'callback_expired', { execution_uuid: uuid });
+        return gone(reply, 'Callback token expired');
+      }
+    }
+
     if (execution.status !== 'pending' && execution.status !== 'awaiting_callback') {
       return notFound(reply, 'Execution not found');
     }

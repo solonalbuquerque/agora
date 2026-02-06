@@ -8,7 +8,9 @@ const swaggerUi = require('@fastify/swagger-ui');
 const config = require('./config');
 const routes = require('./routes');
 const { getSwaggerAgoraOptions } = require('./swagger-agora-config');
+const { attachRequestId } = require('./lib/security/securityLog');
 
+fastify.addHook('onRequest', attachRequestId);
 fastify.register(cookie, { secret: config.staffJwtSecret || config.humanJwtSecret || 'cookie-secret' });
 
 // Store raw body for HMAC signature verification (must run before body is parsed)

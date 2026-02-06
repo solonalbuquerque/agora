@@ -56,11 +56,35 @@ async function getAndDelNonce(key) {
 
 async function incrRateLimit(key, windowSeconds, limit) {
   const redis = await getRedis();
-  if (!redis) return { current: 0, over: false };
+  if (!redis) {
+    return memoryIncrRateLimit(key, windowSeconds, limit);
+  }
   const k = `ratelimit:${key}`;
   const count = await redis.incr(k);
   if (count === 1) await redis.expire(k, windowSeconds);
-  return { current: count, over: count > limit };
+  const ttl = await redis.ttl(k);
+  const resetAt = Math.floor(Date.now() / 1000) + (ttl > 0 ? ttl : windowSeconds);
+  return { current: count, over: count > limit, limit, resetAt };
+}
+
+const memoryRateLimitStore = new Map();
+
+function memoryIncrRateLimit(key, windowSeconds, limit) {
+  const k = `ratelimit:${key}`;
+  const now = Date.now();
+  let entry = memoryRateLimitStore.get(k);
+  if (!entry || entry.resetAt < now) {
+    entry = { count: 0, resetAt: now + windowSeconds * 1000 };
+    memoryRateLimitStore.set(k, entry);
+  }
+  entry.count += 1;
+  const resetAtSec = Math.ceil(entry.resetAt / 1000);
+  return {
+    current: entry.count,
+    over: entry.count > limit,
+    limit,
+    resetAt: resetAtSec,
+  };
 }
 
 module.exports = {

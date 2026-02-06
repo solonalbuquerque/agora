@@ -7,13 +7,16 @@ const { created } = require('../lib/responses');
 const { badRequest } = require('../lib/errors');
 const { incrRateLimit } = require('../lib/redis');
 const { getFaucetDailyLimitCents } = require('../lib/trustLevels');
+const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
 
+const rateLimitFaucet = createRateLimitPreHandler({ scope: 'ip', keyPrefix: 'faucet' });
 const FAUCET_WINDOW_SEC = 86400; // 1 day
 const FAUCET_PER_AGENT_KEY = 'faucet:agent:';
 const FAUCET_PER_IP_KEY = 'faucet:ip:';
 
 async function faucetRoutes(fastify) {
   fastify.post('/faucet', {
+    preHandler: rateLimitFaucet,
     schema: {
       tags: ['Faucet'],
       description: 'Request test balance (only when ENABLE_FAUCET=true). Rate limited by agent and IP.',

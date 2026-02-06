@@ -5,6 +5,9 @@ const agentsDb = require('../db/agents');
 const { success, list } = require('../lib/responses');
 const { badRequest, conflict, forbidden } = require('../lib/errors');
 const { getMaxTransferPerTxCents } = require('../lib/trustLevels');
+const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
+
+const rateLimitByAgent = createRateLimitPreHandler({ scope: 'agent', keyPrefix: 'wallet_transfer' });
 
 async function walletRoutes(fastify, opts) {
   const requireAuth = opts.requireAgentAuth;
@@ -49,7 +52,7 @@ async function walletRoutes(fastify, opts) {
   });
 
   fastify.post('/:coin/transfer', {
-    preHandler: requireAuth,
+    preHandler: [requireAuth, rateLimitByAgent],
     schema: {
       tags: ['Wallet'],
       description: 'Transfer balance from the authenticated agent to another agent for the given coin.',
