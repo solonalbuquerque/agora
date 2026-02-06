@@ -3430,7 +3430,7 @@
         "tags": [
           "Instance"
         ],
-        "description": "Activate instance with registration_code and activation_token (from Official or admin).",
+        "description": "Activate instance. With Central: send instance_id + registration_code (token is fetched). Without: send instance_id + registration_code + activation_token.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3438,8 +3438,7 @@
                 "type": "object",
                 "required": [
                   "instance_id",
-                  "registration_code",
-                  "activation_token"
+                  "registration_code"
                 ],
                 "properties": {
                   "instance_id": {
