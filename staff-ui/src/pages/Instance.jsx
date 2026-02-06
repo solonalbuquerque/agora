@@ -32,6 +32,8 @@ export default function Instance() {
   const [registerForm, setRegisterForm] = useState({ name: '', owner_email: '' });
   const [registering, setRegistering] = useState(false);
   const [registerResult, setRegisterResult] = useState(null);
+  /** Optional Central token (Bearer JWT from POST /human/login) for legacy human flow. */
+  const [centerToken, setCenterToken] = useState('');
 
   // Activate flow
   const [activateForm, setActivateForm] = useState({ instance_id: '', registration_code: '', activation_token: '', official_issuer_id: '' });
@@ -74,7 +76,10 @@ export default function Instance() {
     setError('');
     setRegistering(true);
     try {
-      const res = await api.instanceRegister({ name: registerForm.name.trim(), owner_email: registerForm.owner_email.trim() });
+      const res = await api.instanceRegister(
+        { name: registerForm.name.trim(), owner_email: registerForm.owner_email.trim() },
+        centerToken?.trim() || null
+      );
       const data = res?.data ?? res;
       setRegisterResult({
         instance_id: data.instance_id,
@@ -82,7 +87,11 @@ export default function Instance() {
         status: data.status,
         expires_at: data.expires_at,
       });
-      setActivateForm((f) => ({ ...f, instance_id: data.instance_id || f.instance_id }));
+      setActivateForm((f) => ({
+        ...f,
+        instance_id: data.instance_id || f.instance_id,
+        registration_code: data.registration_code || f.registration_code,
+      }));
       load();
     } catch (e) {
       setError(e?.message || e?.code || 'Register failed');
@@ -111,7 +120,7 @@ export default function Instance() {
       };
       if (activateForm.activation_token?.trim()) body.activation_token = activateForm.activation_token.trim();
       if (activateForm.official_issuer_id?.trim()) body.official_issuer_id = activateForm.official_issuer_id.trim();
-      await api.instanceActivate(body);
+      await api.instanceActivate(body, centerToken?.trim() || null);
       setRegisterResult(null);
       setActivateForm({ instance_id: '', registration_code: '', activation_token: '', official_issuer_id: '' });
       load();
@@ -144,14 +153,14 @@ export default function Instance() {
       <PageHeader title="Instance &amp; Central" onReload={load} loading={loading} />
       {error && <p className="error" style={{ marginBottom: '1rem' }}>{error}</p>}
       <p className="muted" style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
-        Esta página deve ser acessada pela <strong>URL da instância</strong> (ex.: <code>http://localhost:3000/staff</code>), não pela URL do Central (<code>:3001</code>).
+        Use the <strong>instance URL</strong> (e.g. <code>http://localhost:3000/staff</code>), not the Central URL (<code>:3001</code>).
       </p>
 
       {/* Central URL */}
       <div className="card" style={{ borderLeft: '4px solid #7c3aed' }}>
         <h3 style={{ marginTop: 0 }}>AGORA-CENTER — Connection endpoint</h3>
         <p className="muted" style={{ marginBottom: '0.75rem' }}>
-          URL do ponto de conexão com o Central (registro, ativação e sincronização). Configure <code>AGORA_CENTER_URL</code> no <code>.env</code>.
+          Central endpoint for registration and sync. Set <code>AGORA_CENTER_URL</code> in <code>.env</code>.
         </p>
         {centralUrl ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -161,6 +170,21 @@ export default function Instance() {
           </div>
         ) : (
           <p className="muted">Not configured. Set <code>AGORA_CENTER_URL</code> (or <code>CENTRAL_URL</code>) in your <code>.env</code>.</p>
+        )}
+        {centralUrl && (
+          <div style={{ marginTop: '1rem' }}>
+            <label style={{ display: 'block', marginBottom: '0.25rem' }}>Central token (optional)</label>
+            <p className="muted" style={{ marginBottom: '0.5rem', fontSize: '0.85rem' }}>
+              Register works without a token (preregister by <code>owner_email</code>). To use the human-login flow, paste the JWT from <code>POST {centralUrl}/human/login</code>.
+            </p>
+            <input
+              type="password"
+              value={centerToken}
+              onChange={(e) => setCenterToken(e.target.value)}
+              placeholder="Optional: Bearer eyJ..."
+              style={{ width: '100%', maxWidth: '32rem', fontFamily: 'monospace' }}
+            />
+          </div>
         )}
       </div>
 
@@ -197,13 +221,20 @@ export default function Instance() {
         <p className="muted">Loading…</p>
       ) : (
         <>
-          {/* Register — when no instance or show result */}
+          {/* Register — hide when instance is already registered */}
+          {instance?.status !== 'registered' && (
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>1. Register this deployment</h3>
-            <p className="muted" style={{ marginBottom: '1rem' }}>Create a new instance and get <strong>Instance ID</strong> and <strong>Registration code</strong> (single use). Then set <code>INSTANCE_ID</code> in <code>.env</code> and configure at Central.</p>
+            <h3 style={{ marginTop: 0 }}>Register this deployment</h3>
+            <p className="muted" style={{ marginBottom: '1rem' }}>
+              {centralUrl ? (
+                <>Create a new instance linked to the Central. You will get an Instance ID; set it in <code>.env</code> and restart.</>
+              ) : (
+                'Create a new instance and get Instance ID and Registration code. Then set INSTANCE_ID in .env and complete activation below.'
+              )}
+            </p>
             {registerResult ? (
               <div className="instance-register-result">
-                <p><strong>Registration successful.</strong> Save the values below and set <code>INSTANCE_ID={registerResult.instance_id}</code> in your <code>.env</code>, then restart or reload.</p>
+                <p><strong>Registration complete.</strong> {registerResult.status === 'registered' ? 'Instance is active. ' : ''}Set <code>INSTANCE_ID={registerResult.instance_id}</code> in your <code>.env</code>, then restart.</p>
                 <table style={{ marginTop: '0.5rem' }}>
                   <tbody>
                     <tr>
@@ -213,18 +244,21 @@ export default function Instance() {
                         <button type="button" className="secondary" style={{ marginLeft: '0.5rem' }} onClick={() => copyToClipboard(registerResult.instance_id, setCopyFeedback)}>Copy</button>
                       </td>
                     </tr>
-                    <tr>
-                      <td><strong>Registration code</strong></td>
-                      <td>
-                        <code>{registerResult.registration_code}</code>
-                        <button type="button" className="secondary" style={{ marginLeft: '0.5rem' }} onClick={() => copyToClipboard(registerResult.registration_code, setCopyFeedback)}>Copy</button>
-                        <span className="muted" style={{ marginLeft: '0.5rem' }}>Use at Central to obtain activation token.</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td><strong>Expires</strong></td>
-                      <td>{registerResult.expires_at ? new Date(registerResult.expires_at).toLocaleString() : '—'}</td>
-                    </tr>
+                    {registerResult.status !== 'registered' && (
+                      <>
+                        <tr>
+                          <td><strong>Registration code</strong></td>
+                          <td>
+                            <code>{registerResult.registration_code}</code>
+                            <button type="button" className="secondary" style={{ marginLeft: '0.5rem' }} onClick={() => copyToClipboard(registerResult.registration_code, setCopyFeedback)}>Copy</button>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><strong>Expires</strong></td>
+                          <td>{registerResult.expires_at ? new Date(registerResult.expires_at).toLocaleString() : '—'}</td>
+                        </tr>
+                      </>
+                    )}
                   </tbody>
                 </table>
                 {copyFeedback && <span className="muted" style={{ fontSize: '0.8rem' }}>{copyFeedback}</span>}
@@ -243,33 +277,27 @@ export default function Instance() {
               </form>
             )}
           </div>
+          )}
 
-          {/* Configure at Central */}
+          {/* Activate — only needed when Central is not configured or when using a code from another source */}
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>2. Configure at Central</h3>
-            <p className="muted" style={{ marginBottom: '0.5rem' }}>In the AGORA-CENTER dashboard (or API), register this instance with the <strong>Instance ID</strong> and <strong>Registration code</strong> from step 1. The Central will issue an <strong>Activation token</strong>. Paste that token in step 3.</p>
-            {centralUrl ? (
-              <a href={centralUrl} target="_blank" rel="noopener noreferrer" className="primary" style={{ display: 'inline-block', marginTop: '0.5rem' }}>Open AGORA-CENTER →</a>
-            ) : (
-              <p className="muted">Set <code>AGORA_CENTER_URL</code> to show the link.</p>
-            )}
-          </div>
-
-          {/* Activate */}
-          <div className="card">
-            <h3 style={{ marginTop: 0 }}>3. Activate instance</h3>
-            <p className="muted" style={{ marginBottom: '1rem' }}>After obtaining the activation token from the Central, complete activation below.</p>
+            <h3 style={{ marginTop: 0 }}>Activate instance</h3>
+            <p className="muted" style={{ marginBottom: '1rem' }}>
+              {centralUrl
+                ? 'Only needed if you have an instance_id and registration_code from another source (e.g. manual Central flow).'
+                : 'Complete activation with Instance ID and Registration code from the step above, then paste the activation token from the Central.'}
+            </p>
             <form onSubmit={handleActivate}>
               <div className="form-row">
                 <label>Instance ID</label>
-                <input value={activateForm.instance_id} onChange={(e) => setActivateForm((f) => ({ ...f, instance_id: e.target.value }))} placeholder="UUID from step 1" />
+                <input value={activateForm.instance_id} onChange={(e) => setActivateForm((f) => ({ ...f, instance_id: e.target.value }))} placeholder="UUID" />
               </div>
               <div className="form-row">
                 <label>Registration code</label>
-                <input value={activateForm.registration_code} onChange={(e) => setActivateForm((f) => ({ ...f, registration_code: e.target.value }))} placeholder="From step 1" />
+                <input value={activateForm.registration_code} onChange={(e) => setActivateForm((f) => ({ ...f, registration_code: e.target.value }))} placeholder="From registration" />
               </div>
               <div className="form-row">
-                <label>Activation token {centralUrl && <span className="muted">(optional — obtained from Central if empty)</span>}</label>
+                <label>Activation token {centralUrl && <span className="muted">(optional — fetched from Central if empty)</span>}</label>
                 <input value={activateForm.activation_token} onChange={(e) => setActivateForm((f) => ({ ...f, activation_token: e.target.value }))} placeholder={centralUrl ? 'Leave empty to fetch from Central' : 'From Central'} />
               </div>
               <div className="form-row">

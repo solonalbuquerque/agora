@@ -70,5 +70,6 @@ async function main() {
 main().catch((err) => {
   console.error('Failed to generate docs JSON:', err.message);
   console.error('Ensure the database is running (e.g. npm run migrate) and no other process is using it.');
+  console.error('To push without regenerating docs: git push --no-verify');
   process.exit(1);
 });

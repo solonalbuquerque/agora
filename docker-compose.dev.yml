@@ -27,6 +27,11 @@ services:
         echo ">>> API: http://localhost:3000"
         echo ""
         exec npx nodemon src/server.js
+    environment:
+      # Do host, o Center está em localhost:3001; dentro do container use host.docker.internal
+      AGORA_CENTER_URL: http://host.docker.internal:3001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./src:/app/src
       - ./scripts:/app/scripts

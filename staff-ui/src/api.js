@@ -110,8 +110,17 @@ export const api = {
   setup2fa: () => request('/staff/2fa/setup', { method: 'POST' }),
   instance: () => request('/staff/api/instance'),
   instanceUpdateStatus: (id, status) => request(`/staff/api/instance/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }),
-  instanceRegister: (body) => request('/instance/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  instanceActivate: (body) => request('/instance/activate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  /** centerToken: Bearer JWT from Center (POST /human/login). Required when AGORA_CENTER_URL is set. */
+  instanceRegister: (body, centerToken = null) => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (centerToken?.trim()) headers.Authorization = centerToken.startsWith('Bearer ') ? centerToken.trim() : `Bearer ${centerToken.trim()}`;
+    return request('/instance/register', { method: 'POST', headers, body: JSON.stringify(body) });
+  },
+  instanceActivate: (body, centerToken = null) => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (centerToken?.trim()) headers.Authorization = centerToken.startsWith('Bearer ') ? centerToken.trim() : `Bearer ${centerToken.trim()}`;
+    return request('/instance/activate', { method: 'POST', headers, body: JSON.stringify(body) });
+  },
   bridge: (q) => request(`/staff/api/bridge?${new URLSearchParams(q || {})}`),
   getBridge: (id) => request(`/staff/api/bridge/${id}`),
   bridgeSettle: (id) => request(`/staff/api/bridge/${id}/settle`, { method: 'POST' }),

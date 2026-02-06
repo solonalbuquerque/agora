@@ -15,18 +15,23 @@ const logger = require('./logger');
  * @param {string} baseUrl - URL base da Central (ex: http://localhost:3001)
  * @param {string} path - path (ex: /instances/register)
  * @param {object} body - body JSON
+ * @param {string} [requestId]
+ * @param {{ authorization?: string }} [opts] - opcional: Authorization (ex: "Bearer <jwt>") para rotas que exigem humanAuth no Center
  * @returns {Promise<object>}
  */
-async function centralRequest(baseUrl, path, body, requestId = null) {
+async function centralRequest(baseUrl, path, body, requestId = null, opts = null) {
   const url = `${baseUrl.replace(/\/$/, '')}${path}`;
   const logCtx = { request_id: requestId, central_url: url, path };
   logger.log('info', `Central request: POST ${path}`, { ...logCtx, body_keys: body ? Object.keys(body) : [] });
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (opts?.authorization) headers.Authorization = opts.authorization;
 
   let res;
   try {
     res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
   } catch (err) {
@@ -58,14 +63,36 @@ async function centralRequest(baseUrl, path, body, requestId = null) {
 }
 
 /**
- * Registra esta instância na Central.
+ * Pré-registro na Central sem token: a instância envia name, base_url, owner_email; o Center associa ao humano (cria se não existir).
+ * @param {string} baseUrl - AGORA_CENTER_URL
+ * @param {string} name - Nome da instância
+ * @param {string} instanceBaseUrl - base_url desta instância (ex: AGORA_PUBLIC_URL)
+ * @param {string} ownerEmail - email do dono (associado no Center)
+ * @param {string} [requestId]
+ * @returns {Promise<{ instance_id: string, registration_code: string, expires_at: string }>}
+ */
+async function registerCentralPreregister(baseUrl, name, instanceBaseUrl, ownerEmail, requestId = null) {
+  if (!baseUrl || !name || !instanceBaseUrl || !ownerEmail) {
+    throw Object.assign(new Error('Central preregister requires baseUrl, name, instanceBaseUrl and ownerEmail'), { code: 'BAD_REQUEST' });
+  }
+  return centralRequest(
+    baseUrl,
+    '/instances/preregister',
+    { name, base_url: instanceBaseUrl, owner_email: ownerEmail },
+    requestId
+  );
+}
+
+/**
+ * Registro na Central com token de humano (fluxo legado). Preferir registerCentralPreregister quando não há token.
  * @param {string} baseUrl - AGORA_CENTER_URL
  * @param {string} name - Nome da instância
  * @param {string} instanceBaseUrl - base_url desta instância (ex: AGORA_PUBLIC_URL)
  * @param {string} [requestId]
+ * @param {{ authorization?: string }} [opts] - Authorization do request (Bearer JWT do humano no Center)
  * @returns {Promise<{ instance_id: string, registration_code: string, expires_at: string }>}
  */
-async function registerCentral(baseUrl, name, instanceBaseUrl, requestId = null) {
+async function registerCentral(baseUrl, name, instanceBaseUrl, requestId = null, opts = null) {
   if (!baseUrl || !name || !instanceBaseUrl) {
     throw Object.assign(new Error('Central register requires baseUrl, name and instanceBaseUrl'), { code: 'BAD_REQUEST' });
   }
@@ -73,19 +100,21 @@ async function registerCentral(baseUrl, name, instanceBaseUrl, requestId = null)
     baseUrl,
     '/instances/register',
     { name, base_url: instanceBaseUrl },
-    requestId
+    requestId,
+    opts
   );
 }
 
 /**
- * Obtém o activation_token na Central.
+ * Obtém o activation_token na Central. Sem token usa fluxo pré-registro; com token exige ser dono no Center.
  * @param {string} baseUrl - AGORA_CENTER_URL
  * @param {string} instanceId - instance_id devolvido pelo register
  * @param {string} registrationCode - registration_code devolvido pelo register
  * @param {string} [requestId]
+ * @param {{ authorization?: string }} [opts] - opcional: Authorization (Bearer JWT do humano no Center)
  * @returns {Promise<{ activation_token: string, status: string }>}
  */
-async function activateCentral(baseUrl, instanceId, registrationCode, requestId = null) {
+async function activateCentral(baseUrl, instanceId, registrationCode, requestId = null, opts = null) {
   if (!baseUrl || !instanceId || !registrationCode) {
     throw Object.assign(new Error('Central activate requires baseUrl, instance_id and registration_code'), { code: 'BAD_REQUEST' });
   }
@@ -93,11 +122,13 @@ async function activateCentral(baseUrl, instanceId, registrationCode, requestId 
     baseUrl,
     '/instances/activate',
     { instance_id: instanceId, registration_code: registrationCode },
-    requestId
+    requestId,
+    opts
   );
 }
 
 module.exports = {
+  registerCentralPreregister,
   registerCentral,
   activateCentral,
   centralRequest,

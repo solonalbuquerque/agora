@@ -72,18 +72,28 @@ async function instanceRoutes(fastify) {
       const baseUrl = (config.agoraPublicUrl || '').replace(/\/$/, '') || `http://localhost:${config.port || 3000}`;
       let centralRes;
       try {
-        centralRes = await centralClient.registerCentral(config.agoraCenterUrl, name.trim(), baseUrl, requestId);
-        const inst = await instanceDb.registerFromCentral(
+        centralRes = await centralClient.registerCentralPreregister(config.agoraCenterUrl, name.trim(), baseUrl, ownerEmail.trim(), requestId);
+        await instanceDb.registerFromCentral(
           centralRes.instance_id,
           name.trim(),
           ownerEmail.trim()
         );
+        const activateRes = await centralClient.activateCentral(
+          config.agoraCenterUrl,
+          centralRes.instance_id,
+          centralRes.registration_code,
+          requestId
+        );
+        const inst = await instanceDb.activateWithToken(
+          centralRes.instance_id,
+          activateRes.activation_token
+        );
         if (!inst) {
-          request.log?.warn({ instance_id: centralRes.instance_id }, 'registerFromCentral returned null');
+          request.log?.warn({ instance_id: centralRes.instance_id }, 'activateWithToken returned null');
           return reply.code(500).send({
             ok: false,
             code: 'REGISTER_SYNC_FAILED',
-            message: 'Central register succeeded but local sync failed. Check server logs.',
+            message: 'Central register and activate succeeded but local sync failed. Check server logs.',
             debug: { central_instance_id: centralRes.instance_id },
           });
         }
