@@ -25,8 +25,6 @@ export default function Instance() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
-  const [statusSelect, setStatusSelect] = useState('');
-  const [updating, setUpdating] = useState(false);
 
   // Register flow
   const [registerForm, setRegisterForm] = useState({ name: '', owner_email: '' });
@@ -53,7 +51,6 @@ export default function Instance() {
       .then(([data, cfg]) => {
         setInstance(data);
         setConfig(cfg);
-        setStatusSelect('');
         if (data?.id && !activateForm.instance_id) {
           setActivateForm((f) => ({ ...f, instance_id: data.id }));
         }
@@ -128,19 +125,6 @@ export default function Instance() {
       setError(e?.message || e?.code || 'Activation failed');
     } finally {
       setActivating(false);
-    }
-  };
-
-  const handleStatusChange = async () => {
-    if (!instance?.id || !statusSelect) return;
-    setUpdating(true);
-    try {
-      await api.instanceUpdateStatus(instance.id, statusSelect);
-      load();
-    } catch (e) {
-      setError(e?.message || 'Update failed');
-    } finally {
-      setUpdating(false);
     }
   };
 
@@ -349,22 +333,6 @@ export default function Instance() {
                   <button type="button" className="secondary" onClick={() => copyToClipboard(`${baseUrl}/.well-known/agora.json`, setCopyFeedback)}>Copy manifest URL</button>
                 </div>
               )}
-              <div className="card">
-                <h3 style={{ marginTop: 0 }}>Change status (admin)</h3>
-                <p className="muted">Flag/Block will suspend all exported services.</p>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                  <select value={statusSelect} onChange={(e) => setStatusSelect(e.target.value)} style={{ minWidth: '10rem' }}>
-                    <option value="">Select status…</option>
-                    <option value="registered">Registered</option>
-                    <option value="flagged">Flagged</option>
-                    <option value="blocked">Blocked</option>
-                    <option value="unregistered">Unregistered</option>
-                  </select>
-                  <button type="button" className="primary" onClick={handleStatusChange} disabled={!statusSelect || updating}>
-                    {updating ? 'Updating…' : 'Update'}
-                  </button>
-                </div>
-              </div>
             </>
           )}
         </>

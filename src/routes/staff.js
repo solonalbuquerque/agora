@@ -685,6 +685,34 @@ async function staffRoutes(fastify, opts) {
   const instanceDb = require('../db/instance');
   const bridgeDb = require('../db/bridgeTransfers');
 
+  fastify.post('/api/central/sync-ago', {
+    schema: {
+      tags: ['Staff'],
+      description: 'Force sync AGO events from Central (INSTANCE_CREDIT, CREDIT_INSTANCE). Requires AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN.',
+      response: { 200: { type: 'object', properties: { ok: { type: 'boolean' }, message: { type: 'string' } } } },
+    },
+  }, async (request, reply) => {
+    if (!config.agoraCenterUrl || !config.instanceId || !config.instanceToken) {
+      return reply.code(400).send({
+        ok: false,
+        code: 'CENTRAL_SYNC_NOT_CONFIGURED',
+        message: 'AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN are required for Central sync.',
+      });
+    }
+    const centralEventsConsumer = require('../jobs/centralEventsConsumer');
+    try {
+      await centralEventsConsumer.pollOnce();
+      return reply.send({ ok: true, message: 'AGO sync completed.' });
+    } catch (err) {
+      request.log?.warn({ err }, 'Central AGO sync failed');
+      return reply.code(502).send({
+        ok: false,
+        code: 'SYNC_FAILED',
+        message: err?.message || 'Central sync failed',
+      });
+    }
+  });
+
   fastify.get('/api/instance', {
     schema: { tags: ['Staff'], description: 'Get current instance (compliance, status, AGO balance)' },
   }, async (_request, reply) => {
@@ -913,11 +941,15 @@ async function staffRoutes(fastify, opts) {
       registered_at: inst.registered_at,
     } : null;
     const base_url = (config.agoraPublicUrl || '').replace(/\/$/, '') || `http://localhost:${config.port || 3000}`;
+    const agora_center_url = config.agoraCenterUrl || null;
+    const central_sync_available = !!(agora_center_url && config.instanceId && config.instanceToken);
     const response = {
       ok: true,
       data: {
         instance_summary,
         base_url,
+        agora_center_url,
+        central_sync_available,
         bridge_pending_summary: { count: bridgePending.count, total_cents: bridgePending.total_cents },
         executions_last_24h: byStatus,
         executions_total_24h: total,

@@ -34,6 +34,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copyFeedback, setCopyFeedback] = useState('');
+  const [syncAgoLoading, setSyncAgoLoading] = useState(false);
+  const [syncAgoFeedback, setSyncAgoFeedback] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -83,6 +85,23 @@ export default function Dashboard() {
 
   const manifestUrl = baseUrl ? `${baseUrl}/.well-known/agora.json` : '';
   const docsUrl = baseUrl ? `${baseUrl}/docs` : '';
+  const centralSyncAvailable = data?.central_sync_available ?? false;
+
+  const handleSyncAgo = () => {
+    setSyncAgoLoading(true);
+    setSyncAgoFeedback('');
+    api.centralSyncAgo()
+      .then(() => {
+        setSyncAgoFeedback('Sincronização concluída.');
+        load();
+        setTimeout(() => setSyncAgoFeedback(''), 4000);
+      })
+      .catch((e) => {
+        setSyncAgoFeedback(e?.message || 'Falha ao sincronizar.');
+        setTimeout(() => setSyncAgoFeedback(''), 4000);
+      })
+      .finally(() => setSyncAgoLoading(false));
+  };
 
   return (
     <>
@@ -151,6 +170,29 @@ export default function Dashboard() {
                 <Link to="/bridge" className="secondary" style={{ display: 'inline-block', marginTop: '0.5rem' }}>View Bridge Transfers →</Link>
               )}
             </div>
+            {centralSyncAvailable && (
+              <div className="instance-sync-block">
+                <label>AGO da Central (inbound)</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={syncAgoLoading}
+                    onClick={handleSyncAgo}
+                  >
+                    {syncAgoLoading ? 'Sincronizando…' : 'Forçar sincronização'}
+                  </button>
+                  {syncAgoFeedback && (
+                    <span className={syncAgoFeedback.startsWith('Sincronização') ? 'success' : 'error'} style={{ fontSize: '0.9rem' }}>
+                      {syncAgoFeedback}
+                    </span>
+                  )}
+                </div>
+                <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>
+                  Busca créditos INSTANCE_CREDIT/CREDIT_INSTANCE na Central e credita agentes.
+                </p>
+              </div>
+            )}
             <div className="instance-urls">
               <label>Quick links</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>

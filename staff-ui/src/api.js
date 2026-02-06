@@ -39,6 +39,8 @@ export const api = {
   config: () => request('/staff/api/config'),
   statistics: () => request('/staff/api/statistics'),
   dashboard: () => request('/staff/api/dashboard'),
+  /** Force sync AGO events from Central (INSTANCE_CREDIT, CREDIT_INSTANCE). */
+  centralSyncAgo: () => request('/staff/api/central/sync-ago', { method: 'POST' }),
   audit: (q) => request(`/staff/api/audit?${new URLSearchParams(q || {})}`),
   // B1/B2 Staff API (may return 404 until backend implements)
   securityOverview: () => request('/staff/api/security/overview'),
