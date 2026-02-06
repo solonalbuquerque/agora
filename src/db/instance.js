@@ -76,10 +76,40 @@ async function updateStatus(id, status) {
   return res.rows[0] || null;
 }
 
+/**
+ * Cria/atualiza instância a partir da resposta do Central (register).
+ * Usado quando o register é feito na Central; o id vem da Central.
+ */
+async function registerFromCentral(instanceId, name, ownerEmail) {
+  await query(
+    `INSERT INTO instance (id, name, owner_email, status) VALUES ($1, $2, $3, 'pending')
+     ON CONFLICT (id) DO UPDATE SET name = $2, owner_email = $3
+     WHERE instance.status IN ('unregistered', 'pending')`,
+    [instanceId, name, ownerEmail]
+  );
+  return getById(instanceId);
+}
+
+/**
+ * Ativa a instância apenas com o token (fluxo Central: token obtido via POST /instances/activate).
+ * Não valida registration_code local.
+ */
+async function activateWithToken(instanceId, activationToken, officialIssuerId = null) {
+  const activationTokenHash = hashToken((activationToken || '').toString());
+  const res = await query(
+    `UPDATE instance SET status = 'registered', registered_at = NOW(), activation_token_hash = $1, official_issuer_id = $2 WHERE id = $3
+     RETURNING id, name, owner_email, status, created_at, registered_at, last_seen_at, official_issuer_id`,
+    [activationTokenHash, officialIssuerId || null, instanceId]
+  );
+  return res.rows[0] || null;
+}
+
 module.exports = {
   hashToken,
   register,
+  registerFromCentral,
   activate,
+  activateWithToken,
   getById,
   findByActivationToken,
   updateLastSeen,

@@ -58,7 +58,7 @@ export default function Instance() {
       })
       .catch((e) => {
         setInstance(null);
-        setError(e?.message || 'Failed to load');
+        setError(e?.message || e?.raw?.slice?.(0, 120) || 'Failed to load');
       })
       .finally(() => setLoading(false));
   };
@@ -85,7 +85,7 @@ export default function Instance() {
       setActivateForm((f) => ({ ...f, instance_id: data.instance_id || f.instance_id }));
       load();
     } catch (e) {
-      setError(e?.message || 'Register failed');
+      setError(e?.message || e?.code || 'Register failed');
     } finally {
       setRegistering(false);
     }
@@ -93,8 +93,13 @@ export default function Instance() {
 
   const handleActivate = async (e) => {
     e.preventDefault();
-    if (!activateForm.instance_id?.trim() || !activateForm.registration_code?.trim() || !activateForm.activation_token?.trim()) {
-      setError('Instance ID, registration code and activation token are required');
+    const needsToken = !centralUrl; // when Central is configured, token is fetched from Central
+    if (!activateForm.instance_id?.trim() || !activateForm.registration_code?.trim()) {
+      setError('Instance ID and registration code are required');
+      return;
+    }
+    if (needsToken && !activateForm.activation_token?.trim()) {
+      setError('Activation token is required when Central is not configured');
       return;
     }
     setError('');
@@ -103,17 +108,15 @@ export default function Instance() {
       const body = {
         instance_id: activateForm.instance_id.trim(),
         registration_code: activateForm.registration_code.trim(),
-        activation_token: activateForm.activation_token.trim(),
       };
-      if (activateForm.official_issuer_id?.trim()) {
-        body.official_issuer_id = activateForm.official_issuer_id.trim();
-      }
+      if (activateForm.activation_token?.trim()) body.activation_token = activateForm.activation_token.trim();
+      if (activateForm.official_issuer_id?.trim()) body.official_issuer_id = activateForm.official_issuer_id.trim();
       await api.instanceActivate(body);
       setRegisterResult(null);
       setActivateForm({ instance_id: '', registration_code: '', activation_token: '', official_issuer_id: '' });
       load();
     } catch (e) {
-      setError(e?.message || 'Activation failed');
+      setError(e?.message || e?.code || 'Activation failed');
     } finally {
       setActivating(false);
     }
@@ -140,6 +143,9 @@ export default function Instance() {
     <>
       <PageHeader title="Instance &amp; Central" onReload={load} loading={loading} />
       {error && <p className="error" style={{ marginBottom: '1rem' }}>{error}</p>}
+      <p className="muted" style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
+        Esta página deve ser acessada pela <strong>URL da instância</strong> (ex.: <code>http://localhost:3000/staff</code>), não pela URL do Central (<code>:3001</code>).
+      </p>
 
       {/* Central URL */}
       <div className="card" style={{ borderLeft: '4px solid #7c3aed' }}>
@@ -263,8 +269,8 @@ export default function Instance() {
                 <input value={activateForm.registration_code} onChange={(e) => setActivateForm((f) => ({ ...f, registration_code: e.target.value }))} placeholder="From step 1" />
               </div>
               <div className="form-row">
-                <label>Activation token</label>
-                <input value={activateForm.activation_token} onChange={(e) => setActivateForm((f) => ({ ...f, activation_token: e.target.value }))} placeholder="From Central" />
+                <label>Activation token {centralUrl && <span className="muted">(optional — obtained from Central if empty)</span>}</label>
+                <input value={activateForm.activation_token} onChange={(e) => setActivateForm((f) => ({ ...f, activation_token: e.target.value }))} placeholder={centralUrl ? 'Leave empty to fetch from Central' : 'From Central'} />
               </div>
               <div className="form-row">
                 <label>Official issuer ID (optional)</label>

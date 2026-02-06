@@ -60,6 +60,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/instance': {
+        target: process.env.API_PROXY_TARGET || 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+        logLevel: 'debug',
+      },
     },
   },
 });

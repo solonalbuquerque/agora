@@ -25,6 +25,78 @@
         }
       }
     },
+    "responses": {
+      "InstanceNotCompliant": {
+        "description": "Instance is not compliant (status is not registered). AGO inbound, AGO outbound, and service export are disabled.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ok": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "code": {
+                  "type": "string",
+                  "example": "INSTANCE_NOT_COMPLIANT"
+                },
+                "message": {
+                  "type": "string",
+                  "example": "AGO inbound is disabled until the instance is compliant."
+                }
+              }
+            }
+          }
+        }
+      },
+      "ExportsDisabled": {
+        "description": "Service export is disabled by settings (export_services_enabled is false).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ok": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "code": {
+                  "type": "string",
+                  "example": "EXPORTS_DISABLED"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ReservedCoinMintForbidden": {
+        "description": "AGO cannot be minted locally (admin mint or faucet).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ok": {
+                  "type": "boolean",
+                  "example": false
+                },
+                "code": {
+                  "type": "string",
+                  "example": "RESERVED_COIN_MINT_FORBIDDEN"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "schemas": {}
   },
   "paths": {
@@ -108,6 +180,112 @@
         "responses": {
           "200": {
             "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/.well-known/agora.json": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "description": "Public instance manifest: protocol version, instance id, status, export and AGO policy summary, and audit endpoint paths.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "protocol": {
+                      "type": "string"
+                    },
+                    "protocol_version": {
+                      "type": "string"
+                    },
+                    "instance_id": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "base_url": {
+                      "type": "string"
+                    },
+                    "instance_status": {
+                      "type": "string",
+                      "enum": [
+                        "unregistered",
+                        "pending",
+                        "registered",
+                        "flagged",
+                        "blocked"
+                      ]
+                    },
+                    "export_services_enabled": {
+                      "type": "boolean"
+                    },
+                    "reserved_coin_policy": {
+                      "type": "object",
+                      "properties": {
+                        "reserved_coin": {
+                          "type": "string"
+                        },
+                        "local_mint_forbidden": {
+                          "type": "boolean"
+                        },
+                        "local_transfer_allowed": {
+                          "type": "boolean"
+                        },
+                        "outbound_gated_by_compliance": {
+                          "type": "boolean"
+                        },
+                        "inbound_gated_by_compliance": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "docs": {
+                      "type": "object",
+                      "properties": {
+                        "swagger_ui": {
+                          "type": "string"
+                        },
+                        "swagger_spec": {
+                          "type": "string"
+                        },
+                        "doc_ia": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "endpoints": {
+                      "type": "object",
+                      "properties": {
+                        "balance": {
+                          "type": "string",
+                          "description": "GET /wallet/:coin/balance (HMAC)"
+                        },
+                        "statement": {
+                          "type": "string",
+                          "description": "GET /wallet/:coin/statement (HMAC)"
+                        },
+                        "public_services": {
+                          "type": "string",
+                          "description": "GET /public/services"
+                        }
+                      }
+                    },
+                    "central_connection_url": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "URL of AGORA-CENTER (Central) when AGORA_CENTER_URL is set"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -220,6 +398,62 @@
         "responses": {
           "200": {
             "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/public/services": {
+      "get": {
+        "tags": [
+          "Public"
+        ],
+        "description": "List exported services (visibility=exported, export_status=active). Only returns data when instance is compliant; otherwise empty list with warning.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "exported"
+              ]
+            },
+            "in": "query",
+            "name": "visibility",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "warning": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "rows": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -623,6 +857,188 @@
         }
       }
     },
+    "/bridge/transfer": {
+      "post": {
+        "tags": [
+          "Bridge"
+        ],
+        "description": "Request AGO outbound to another instance. Compliance required. Creates hold and pending transfer.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "coin",
+                  "amount_cents"
+                ],
+                "properties": {
+                  "coin": {
+                    "type": "string",
+                    "maxLength": 16
+                  },
+                  "amount_cents": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "to_instance_id": {
+                    "type": "string"
+                  },
+                  "to_agent_id": {
+                    "type": "string"
+                  },
+                  "external_ref": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "transfer_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "pending"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "INSTANCE_NOT_COMPLIANT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "description": "INSTANCE_NOT_COMPLIANT"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bridge/cashout": {
+      "post": {
+        "tags": [
+          "Bridge"
+        ],
+        "description": "Request AGO cashout to bank rails. Compliance required. Creates hold and pending transfer.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "coin",
+                  "amount_cents",
+                  "destination_ref"
+                ],
+                "properties": {
+                  "coin": {
+                    "type": "string",
+                    "maxLength": 16
+                  },
+                  "amount_cents": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "destination_ref": {
+                    "type": "string"
+                  },
+                  "external_ref": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "transfer_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "pending"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "INSTANCE_NOT_COMPLIANT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "description": "INSTANCE_NOT_COMPLIANT"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/services/": {
       "post": {
         "tags": [
@@ -662,6 +1078,10 @@
                   "coin": {
                     "type": "string",
                     "maxLength": 16
+                  },
+                  "export": {
+                    "type": "boolean",
+                    "default": false
                   }
                 }
               }
@@ -990,6 +1410,131 @@
                           "format": "date-time"
                         }
                       }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/{id}/export": {
+      "patch": {
+        "tags": [
+          "Services"
+        ],
+        "description": "Enable or disable service export. Only owner. Export requires instance compliant and export_services_enabled.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "export"
+                ],
+                "properties": {
+                  "export": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "owner_agent_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "webhook_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "input_schema": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "output_schema": {
+                          "type": "object",
+                          "nullable": true
+                        },
+                        "price_cents": {
+                          "type": "integer"
+                        },
+                        "price_formated": {
+                          "type": "string"
+                        },
+                        "coin": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused",
+                            "removed"
+                          ]
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
                     }
                   }
                 }
@@ -2070,7 +2615,7 @@
         "tags": [
           "Admin"
         ],
-        "description": "Create an issuer (HMAC secret for signing credits).",
+        "description": "Create an issuer (HMAC secret for signing credits). Optionally set is_central for AGO Central issuer.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2086,6 +2631,10 @@
                   },
                   "secret": {
                     "type": "string"
+                  },
+                  "is_central": {
+                    "type": "boolean",
+                    "default": false
                   }
                 }
               }
@@ -2199,6 +2748,327 @@
                     "ok": {
                       "type": "boolean"
                     },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/services/{id}/resume-export": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Resume export for a suspended exported service. Requires instance compliant and export_services_enabled.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/instance/{id}/status": {
+      "patch": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Update instance status (e.g. flag, block, unblock). Setting to non-registered suspends exported services.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "unregistered",
+                      "pending",
+                      "registered",
+                      "flagged",
+                      "blocked"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/bridge/{id}/settle": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Settle a pending bridge transfer. Converts hold_outbound to debit_outbound and marks transfer settled.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/bridge/{id}/reject": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "description": "Reject a pending bridge transfer. Refunds hold to agent and marks transfer rejected.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
                     "code": {
                       "type": "string"
                     },
@@ -2715,6 +3585,14 @@
     {
       "name": "Instance",
       "description": "Instance registration and activation. Status with X-Instance-Token or X-Admin-Token."
+    },
+    {
+      "name": "Bridge",
+      "description": "AGO outbound (cross-instance / cashout). HMAC agent auth; compliance required."
+    },
+    {
+      "name": "Public",
+      "description": "Public endpoints (e.g. instance manifest, exported services list)."
     },
     {
       "name": "Observability",

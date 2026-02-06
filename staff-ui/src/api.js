@@ -1,15 +1,31 @@
 const BASE = '';
 
+function parseResponseText(text, res, url) {
+  if (!text || !text.trim()) return {};
+  const trimmed = text.trim();
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.error('[api.request] JSON parse failed:', e.message, { preview: text.slice(0, 100) });
+      throw Object.assign(new Error(`Resposta inválida (não é JSON): ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`), { status: res.status, raw: text });
+    }
+  }
+  console.error('[api.request] Response is not JSON:', { status: res.status, preview: text.slice(0, 150) });
+  const msg = text.slice(0, 100).replace(/\s+/g, ' ');
+  throw Object.assign(new Error(`Servidor retornou texto em vez de JSON (${res.status}): ${msg}${text.length > 100 ? '…' : ''}. Confira se esta página foi aberta na URL da instância (ex.: http://localhost:3000/staff), não na do Central.`), { status: res.status, raw: text });
+}
+
 function request(path, options = {}) {
   const url = path.startsWith('http') ? path : `${BASE}${path}`;
   console.log('[api.request]', { path, url, options });
   return fetch(url, { credentials: 'include', ...options }).then(async (res) => {
     const text = await res.text();
-    console.log('[api.request] Response:', { status: res.status, statusText: res.statusText, text });
-    const data = text ? JSON.parse(text) : {};
+    console.log('[api.request] Response:', { status: res.status, statusText: res.statusText, textLength: text?.length, preview: text?.slice(0, 80) });
+    const data = parseResponseText(text, res, url);
     if (!res.ok) {
       console.error('[api.request] Error response:', { status: res.status, data });
-      throw { status: res.status, ...data };
+      throw { status: res.status, message: data?.message || data?.code || res.statusText, ...data };
     }
     console.log('[api.request] Success:', data);
     return data;
