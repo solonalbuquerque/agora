@@ -1,6 +1,10 @@
 #!/bin/sh
 # Runs before every git push. Regenerates docs/root.json, docs/swagger.json, docs/doc-ia.json.
-# Requires database to be available. Skip with: git push --no-verify
+# Requires database to be available. If docs:json fails (e.g. DB not running), push is still allowed.
 
 cd "$(git rev-parse --show-toplevel)" && npm run docs:json
-exit $?
+if [ $? -ne 0 ]; then
+  echo "Docs JSON was not regenerated (e.g. database not running). Push will continue."
+  echo "To regenerate later: npm run docs:json"
+fi
+exit 0
