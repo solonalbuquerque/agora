@@ -355,27 +355,32 @@ async function getInstanceByIdOrSlug(baseUrl, idOrSlug, requestId = null) {
 
 /**
  * Request Central to execute a remote service (instance_id or slug + service_ref). Uses instance auth.
- * Central will validate provider instance, then call execute-from-central on the provider core.
+ * Central accepts execution and returns 202; result is POSTed to callback_url when done (AGO flow).
  * @param {string} baseUrl - AGORA_CENTER_URL
  * @param {string} instanceId - this instance id (caller)
  * @param {string} instanceToken - this instance activation token
- * @param {{ targetInstanceIdOrSlug: string, serviceRef: string, fromAgentRef?: string, payload?: object }} opts
+ * @param {{ targetInstanceIdOrSlug: string, serviceRef: string, fromAgentRef?: string, payload?: object, callbackUrl: string, callbackToken?: string }} opts
  * @param {string} [requestId]
- * @returns {Promise<object>} - response from provider (Central forwards the execute-from-central response)
+ * @returns {Promise<{ statusCode: number, data: object }>} - 202 with execution_id, or error
  */
 async function executeRemoteService(baseUrl, instanceId, instanceToken, opts, requestId = null) {
   if (!baseUrl || !instanceId || !instanceToken) {
     throw Object.assign(new Error('executeRemoteService requires baseUrl, instanceId and instanceToken'), { code: 'BAD_REQUEST' });
   }
-  const { targetInstanceIdOrSlug, serviceRef, fromAgentRef, payload } = opts || {};
+  const { targetInstanceIdOrSlug, serviceRef, fromAgentRef, payload, callbackUrl, callbackToken } = opts || {};
   if (!targetInstanceIdOrSlug || !serviceRef) {
     throw Object.assign(new Error('executeRemoteService requires targetInstanceIdOrSlug and serviceRef'), { code: 'BAD_REQUEST' });
+  }
+  if (!callbackUrl || typeof callbackUrl !== 'string') {
+    throw Object.assign(new Error('executeRemoteService requires callbackUrl (AGO async execution)'), { code: 'BAD_REQUEST' });
   }
   const isUuid = UUID_REGEX.test(String(targetInstanceIdOrSlug).trim());
   const body = {
     service_ref: serviceRef,
     from_agent_ref: fromAgentRef || '',
     payload: payload || {},
+    callback_url: callbackUrl,
+    callback_token: callbackToken || '',
   };
   if (isUuid) {
     body.instance_id = String(targetInstanceIdOrSlug).trim();
@@ -405,7 +410,7 @@ async function executeRemoteService(baseUrl, instanceId, instanceToken, opts, re
     logger.log('error', 'Central execute remote response not JSON', { ...logCtx, status: res.status, body_preview: text.slice(0, 200) });
     throw Object.assign(new Error(`Central returned invalid JSON (${res.status})`), { code: 'CENTRAL_INVALID_RESPONSE', status: res.status });
   }
-  if (!res.ok) {
+  if (!res.ok && res.status !== 202) {
     const msg = data?.message || data?.error || res.statusText || `HTTP ${res.status}`;
     logger.log('warn', `Central execute remote error: ${msg}`, { ...logCtx, status: res.status, data: logger.sanitize(data) });
     const err = new Error(msg);

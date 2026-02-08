@@ -101,6 +101,8 @@ async function executionsRoutes(fastify, opts) {
           idempotency_key: { type: 'string', description: 'Optional; same semantics as X-Idempotency-Key header.' },
           instance_id: { type: 'string', description: 'Target instance UUID (use this or slug for remote; omit for local)' },
           slug: { type: 'string', description: 'Target instance slug (use this or instance_id for remote; omit for local)' },
+          callback_url: { type: 'string', format: 'uri', description: 'Required for remote: URL to POST result when execution completes (AGO flow)' },
+          callback_token: { type: 'string', description: 'Optional token sent in X-Callback-Token when calling callback_url' },
         },
       },
       response: {
@@ -130,7 +132,7 @@ async function executionsRoutes(fastify, opts) {
   }, async (request, reply) => {
     const requesterAgentId = request.agentId;
     const body = request.body || {};
-    const { service_id: serviceId, request: requestPayload, instance_id: instanceIdParam, slug: slugParam } = body;
+    const { service_id: serviceId, request: requestPayload, instance_id: instanceIdParam, slug: slugParam, callback_url: callbackUrl, callback_token: callbackToken } = body;
     const idempotencyKey = request.headers['x-idempotency-key'] || body.idempotency_key || null;
 
     if (!serviceId) return badRequest(reply, 'service_id is required');
@@ -144,6 +146,9 @@ async function executionsRoutes(fastify, opts) {
     }
 
     if (instanceIdParam || slugParam) {
+      if (!callbackUrl || typeof callbackUrl !== 'string') {
+        return badRequest(reply, 'callback_url is required for remote execution (AGO async flow)');
+      }
       if (!centralUrl || !myInstanceId || !myInstanceToken) {
         return reply.code(503).send({
           ok: false,
@@ -179,9 +184,14 @@ async function executionsRoutes(fastify, opts) {
             serviceRef: serviceId,
             fromAgentRef: requesterAgentId,
             payload: requestPayload || {},
+            callbackUrl,
+            callbackToken: callbackToken || '',
           },
           request.requestId
         );
+        if (result.statusCode === 202) {
+          return reply.code(202).send(result.data);
+        }
         return reply.code(result.statusCode).send(result.data);
       } catch (err) {
         if (err.status === 402) {
