@@ -42,6 +42,8 @@ async function instanceRoutes(fastify) {
         properties: {
           name: { type: 'string' },
           owner_email: { type: 'string', format: 'email' },
+          slug: { type: 'string', description: 'Required when using Central' },
+          license_code: { type: 'string', description: 'Required when slug contains reserved term' },
         },
       },
       response: {
@@ -63,16 +65,17 @@ async function instanceRoutes(fastify) {
       },
     },
   }, async (request, reply) => {
-    request.log?.info({ path: '/instance/register', body: { name: request.body?.name ? '[set]' : null, owner_email: request.body?.owner_email ? '[set]' : null } }, 'POST /instance/register received');
-    const { name, owner_email: ownerEmail } = request.body || {};
+    request.log?.info({ path: '/instance/register', body: { name: request.body?.name ? '[set]' : null, owner_email: request.body?.owner_email ? '[set]' : null, slug: request.body?.slug ? '[set]' : null } }, 'POST /instance/register received');
+    const { name, owner_email: ownerEmail, slug, license_code: licenseCode } = request.body || {};
     if (!name || !ownerEmail) return badRequest(reply, 'name and owner_email are required');
     const requestId = request.requestId || null;
 
     if (config.agoraCenterUrl) {
+      if (!slug || typeof slug !== 'string') return badRequest(reply, 'slug is required when registering with Central');
       const baseUrl = (config.agoraPublicUrl || '').replace(/\/$/, '') || `http://localhost:${config.port || 3000}`;
       let centralRes;
       try {
-        centralRes = await centralClient.registerCentralPreregister(config.agoraCenterUrl, name.trim(), baseUrl, ownerEmail.trim(), requestId);
+        centralRes = await centralClient.registerCentralPreregister(config.agoraCenterUrl, name.trim(), baseUrl, ownerEmail.trim(), slug, requestId, licenseCode || null);
         await instanceDb.registerFromCentral(
           centralRes.instance_id,
           name.trim(),
@@ -104,10 +107,12 @@ async function instanceRoutes(fastify) {
           expires_at: centralRes.expires_at,
         });
       } catch (err) {
-        const code = err.code || 'CENTRAL_REGISTER_FAILED';
-        const message = err.message || 'Central register failed';
-        logger.log('error', message, { request_id: requestId, code, status: err.status, details: err.details });
-        return reply.code(err.status && err.status >= 400 && err.status < 600 ? err.status : 502).send({
+        const details = err.details || {};
+        const code = details.code || err.code || 'CENTRAL_REGISTER_FAILED';
+        const message = details.message || err.message || 'Central register failed';
+        const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 502;
+        logger.log('error', message, { request_id: requestId, code, status, details });
+        return reply.code(status).send({
           ok: false,
           code,
           message,

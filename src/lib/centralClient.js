@@ -63,24 +63,28 @@ async function centralRequest(baseUrl, path, body, requestId = null, opts = null
 }
 
 /**
- * Pré-registro na Central sem token: a instância envia name, base_url, owner_email; o Center associa ao humano (cria se não existir).
+ * Pré-registro na Central sem token: a instância envia name, base_url, owner_email, slug; opcional license_code se slug contiver termo reservado.
  * @param {string} baseUrl - AGORA_CENTER_URL
  * @param {string} name - Nome da instância
  * @param {string} instanceBaseUrl - base_url desta instância (ex: AGORA_PUBLIC_URL)
  * @param {string} ownerEmail - email do dono (associado no Center)
+ * @param {string} slug - slug único da instância
  * @param {string} [requestId]
+ * @param {string} [licenseCode] - obrigatório se slug contiver termo reservado
  * @returns {Promise<{ instance_id: string, registration_code: string, expires_at: string }>}
  */
-async function registerCentralPreregister(baseUrl, name, instanceBaseUrl, ownerEmail, requestId = null) {
+async function registerCentralPreregister(baseUrl, name, instanceBaseUrl, ownerEmail, slug, requestId = null, licenseCode = null) {
   if (!baseUrl || !name || !instanceBaseUrl || !ownerEmail) {
     throw Object.assign(new Error('Central preregister requires baseUrl, name, instanceBaseUrl and ownerEmail'), { code: 'BAD_REQUEST' });
   }
-  return centralRequest(
-    baseUrl,
-    '/instances/preregister',
-    { name, base_url: instanceBaseUrl, owner_email: ownerEmail },
-    requestId
-  );
+  if (!slug || typeof slug !== 'string') {
+    throw Object.assign(new Error('Slug is required for Central preregister'), { code: 'BAD_REQUEST' });
+  }
+  const body = { name, base_url: instanceBaseUrl, owner_email: ownerEmail, slug: slug.trim() };
+  if (licenseCode && typeof licenseCode === 'string' && licenseCode.trim()) {
+    body.license_code = licenseCode.trim();
+  }
+  return centralRequest(baseUrl, '/instances/preregister', body, requestId);
 }
 
 /**

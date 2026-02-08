@@ -27,7 +27,7 @@ export default function Instance() {
   const [copyFeedback, setCopyFeedback] = useState('');
 
   // Register flow
-  const [registerForm, setRegisterForm] = useState({ name: '', owner_email: '' });
+  const [registerForm, setRegisterForm] = useState({ name: '', owner_email: '', slug: '', license_code: '' });
   const [registering, setRegistering] = useState(false);
   const [registerResult, setRegisterResult] = useState(null);
   /** Optional Central token (Bearer JWT from POST /human/login) for legacy human flow. */
@@ -64,19 +64,26 @@ export default function Instance() {
 
   useEffect(() => { load(); }, []);
 
+  const centralUrl = config?.agora_center_url ?? '';
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!registerForm.name?.trim() || !registerForm.owner_email?.trim()) {
       setError('Name and owner email are required');
       return;
     }
+    if (centralUrl && !registerForm.slug?.trim()) {
+      setError('Slug is required when registering with Central');
+      return;
+    }
     setError('');
     setRegistering(true);
     try {
-      const res = await api.instanceRegister(
-        { name: registerForm.name.trim(), owner_email: registerForm.owner_email.trim() },
-        centerToken?.trim() || null
-      );
+      const body = { name: registerForm.name.trim(), owner_email: registerForm.owner_email.trim() };
+      if (centralUrl) {
+        body.slug = registerForm.slug.trim();
+        if (registerForm.license_code?.trim()) body.license_code = registerForm.license_code.trim();
+      }
+      const res = await api.instanceRegister(body, centerToken?.trim() || null);
       const data = res?.data ?? res;
       setRegisterResult({
         instance_id: data.instance_id,
@@ -91,7 +98,8 @@ export default function Instance() {
       }));
       load();
     } catch (e) {
-      setError(e?.message || e?.code || 'Register failed');
+      const msg = e?.data?.message ?? e?.message ?? e?.code ?? 'Register failed';
+      setError(msg);
     } finally {
       setRegistering(false);
     }
@@ -129,7 +137,6 @@ export default function Instance() {
   };
 
   const badge = instance?.status ? STATUS_BADGES[instance.status] || { label: instance.status, className: '' } : null;
-  const centralUrl = config?.agora_center_url ?? null;
   const baseUrl = config?.base_url ?? '';
 
   return (
@@ -257,6 +264,19 @@ export default function Instance() {
                   <label>Owner email</label>
                   <input type="email" value={registerForm.owner_email} onChange={(e) => setRegisterForm((f) => ({ ...f, owner_email: e.target.value }))} placeholder="owner@example.com" />
                 </div>
+                {centralUrl && (
+                  <>
+                    <div className="form-row">
+                      <label>Slug</label>
+                      <input value={registerForm.slug} onChange={(e) => setRegisterForm((f) => ({ ...f, slug: e.target.value }))} placeholder="my-instance" />
+                      <span className="muted" style={{ fontSize: '0.85rem' }}>Unique identifier (a-z, 0-9, _, -). Required when using Central.</span>
+                    </div>
+                    <div className="form-row">
+                      <label>License code (optional)</label>
+                      <input value={registerForm.license_code} onChange={(e) => setRegisterForm((f) => ({ ...f, license_code: e.target.value }))} placeholder="Only if slug contains reserved term" />
+                    </div>
+                  </>
+                )}
                 <button type="submit" className="primary" disabled={registering}>{registering ? 'Registering…' : 'Register'}</button>
               </form>
             )}
