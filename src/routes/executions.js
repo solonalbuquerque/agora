@@ -15,6 +15,8 @@ const { securityLog } = require('../lib/security/securityLog');
 const { createRateLimitPreHandler } = require('../lib/security/rateLimit');
 const metrics = require('../lib/metrics');
 const { recordAuditEvent } = require('../lib/audit');
+const centralClient = require('../lib/centralClient');
+const compliance = require('../lib/compliance');
 const DEFAULT_COIN = 'AGOTEST';
 
 const timeoutMs = config.serviceWebhookTimeoutMs || 30000;
@@ -94,9 +96,11 @@ async function executionsRoutes(fastify, opts) {
         type: 'object',
         required: ['service_id', 'request'],
         properties: {
-          service_id: { type: 'string', format: 'uuid' },
+          service_id: { type: 'string', format: 'uuid', description: 'Local service UUID (local execution) or service_ref in target instance (remote)' },
           request: { type: 'object', description: 'Payload sent to the service webhook' },
           idempotency_key: { type: 'string', description: 'Optional; same semantics as X-Idempotency-Key header.' },
+          instance_id: { type: 'string', description: 'Target instance UUID (use this or slug for remote; omit for local)' },
+          slug: { type: 'string', description: 'Target instance slug (use this or instance_id for remote; omit for local)' },
         },
       },
       response: {
@@ -126,11 +130,74 @@ async function executionsRoutes(fastify, opts) {
   }, async (request, reply) => {
     const requesterAgentId = request.agentId;
     const body = request.body || {};
-    const { service_id: serviceId, request: requestPayload } = body;
+    const { service_id: serviceId, request: requestPayload, instance_id: instanceIdParam, slug: slugParam } = body;
     const idempotencyKey = request.headers['x-idempotency-key'] || body.idempotency_key || null;
 
     if (!serviceId) return badRequest(reply, 'service_id is required');
 
+    const centralUrl = config.agoraCenterUrl;
+    const myInstanceId = config.instanceId;
+    const myInstanceToken = config.instanceToken;
+
+    if (instanceIdParam && slugParam) {
+      return badRequest(reply, 'Provide either instance_id or slug, not both');
+    }
+
+    if (instanceIdParam || slugParam) {
+      if (!centralUrl || !myInstanceId || !myInstanceToken) {
+        return reply.code(503).send({
+          ok: false,
+          code: 'CENTRAL_NOT_CONFIGURED',
+          message: 'Remote execution requires AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN',
+        });
+      }
+      const targetInstanceIdOrSlug = instanceIdParam || slugParam;
+      let targetInstance;
+      try {
+        targetInstance = await centralClient.getInstanceByIdOrSlug(centralUrl, targetInstanceIdOrSlug, request.requestId);
+      } catch (err) {
+        if (err.status === 404) {
+          return notFound(reply, 'Target instance not found');
+        }
+        throw err;
+      }
+      const currentInstance = await compliance.getCurrentInstance();
+      const currentInstanceId = currentInstance?.id || myInstanceId;
+      if (targetInstance.id === currentInstanceId) {
+        return runLocalExecute();
+      }
+      if (targetInstance.status !== 'registered') {
+        return badRequest(reply, 'Target instance is not active or not allowed for remote execution');
+      }
+      try {
+        const result = await centralClient.executeRemoteService(
+          centralUrl,
+          myInstanceId,
+          myInstanceToken,
+          {
+            targetInstanceIdOrSlug,
+            serviceRef: serviceId,
+            fromAgentRef: requesterAgentId,
+            payload: requestPayload || {},
+          },
+          request.requestId
+        );
+        return reply.code(result.statusCode).send(result.data);
+      } catch (err) {
+        if (err.status === 402) {
+          return reply.code(402).send(err.details || { code: 'INSUFFICIENT_BALANCE', message: err.message });
+        }
+        if (err.status === 404) {
+          return notFound(reply, err.message || 'Service or instance not found');
+        }
+        if (err.status === 400) {
+          return badRequest(reply, err.message || 'Bad request');
+        }
+        throw err;
+      }
+    }
+
+    async function runLocalExecute() {
     const service = await servicesDb.getById(serviceId);
     if (!service) return notFound(reply, 'Service not found');
     if (service.status !== 'active') {
@@ -228,6 +295,9 @@ async function executionsRoutes(fastify, opts) {
     metrics.executionRecorded('awaiting_callback', serviceId);
     const row = await executionsDb.getById(executionRow.id);
     return created(reply, row);
+    }
+
+    return runLocalExecute();
   });
 
   fastify.post('/executions/:uuid', {

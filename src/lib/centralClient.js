@@ -306,6 +306,117 @@ async function postExportedServices(baseUrl, instanceId, instanceToken, services
   return data;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Fetch instance by id (UUID) or slug from Central (public, no auth). Used to validate target instance before forwarding execute.
+ * @param {string} baseUrl - AGORA_CENTER_URL
+ * @param {string} idOrSlug - instance UUID or slug
+ * @param {string} [requestId]
+ * @returns {Promise<{ id: string, status: string, base_url?: string, slug?: string, ... }>}
+ */
+async function getInstanceByIdOrSlug(baseUrl, idOrSlug, requestId = null) {
+  if (!baseUrl || !idOrSlug || typeof idOrSlug !== 'string') {
+    throw Object.assign(new Error('getInstanceByIdOrSlug requires baseUrl and idOrSlug'), { code: 'BAD_REQUEST' });
+  }
+  const isUuid = UUID_REGEX.test(idOrSlug.trim());
+  const path = isUuid
+    ? `/public/instances/${encodeURIComponent(idOrSlug.trim())}`
+    : `/public/instances/by-slug/${encodeURIComponent(idOrSlug.trim())}`;
+  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
+  const logCtx = { request_id: requestId, central_url: url, path };
+  logger.log('info', `Central GET ${path} (instance by ${isUuid ? 'id' : 'slug'})`, logCtx);
+  let res;
+  try {
+    res = await fetch(url, { method: 'GET' });
+  } catch (err) {
+    logger.log('error', 'Central GET instance failed (network)', { ...logCtx, error: err.message, code: err.code });
+    throw Object.assign(new Error(`Central unreachable: ${err.message}`), { code: 'CENTRAL_NETWORK', cause: err });
+  }
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_) {
+    logger.log('error', 'Central GET instance response not JSON', { ...logCtx, status: res.status, body_preview: text.slice(0, 200) });
+    throw Object.assign(new Error(`Central returned invalid JSON (${res.status})`), { code: 'CENTRAL_INVALID_RESPONSE', status: res.status });
+  }
+  if (!res.ok) {
+    const msg = data?.message || data?.error || res.statusText || `HTTP ${res.status}`;
+    logger.log('warn', `Central GET instance error: ${msg}`, { ...logCtx, status: res.status, data: logger.sanitize(data) });
+    const err = new Error(msg);
+    err.code = data?.code || 'CENTRAL_ERROR';
+    err.status = res.status;
+    err.details = data;
+    throw err;
+  }
+  return data;
+}
+
+/**
+ * Request Central to execute a remote service (instance_id or slug + service_ref). Uses instance auth.
+ * Central will validate provider instance, then call execute-from-central on the provider core.
+ * @param {string} baseUrl - AGORA_CENTER_URL
+ * @param {string} instanceId - this instance id (caller)
+ * @param {string} instanceToken - this instance activation token
+ * @param {{ targetInstanceIdOrSlug: string, serviceRef: string, fromAgentRef?: string, payload?: object }} opts
+ * @param {string} [requestId]
+ * @returns {Promise<object>} - response from provider (Central forwards the execute-from-central response)
+ */
+async function executeRemoteService(baseUrl, instanceId, instanceToken, opts, requestId = null) {
+  if (!baseUrl || !instanceId || !instanceToken) {
+    throw Object.assign(new Error('executeRemoteService requires baseUrl, instanceId and instanceToken'), { code: 'BAD_REQUEST' });
+  }
+  const { targetInstanceIdOrSlug, serviceRef, fromAgentRef, payload } = opts || {};
+  if (!targetInstanceIdOrSlug || !serviceRef) {
+    throw Object.assign(new Error('executeRemoteService requires targetInstanceIdOrSlug and serviceRef'), { code: 'BAD_REQUEST' });
+  }
+  const isUuid = UUID_REGEX.test(String(targetInstanceIdOrSlug).trim());
+  const body = {
+    service_ref: serviceRef,
+    from_agent_ref: fromAgentRef || '',
+    payload: payload || {},
+  };
+  if (isUuid) {
+    body.instance_id = String(targetInstanceIdOrSlug).trim();
+  } else {
+    body.slug = String(targetInstanceIdOrSlug).trim();
+  }
+  const url = `${baseUrl.replace(/\/$/, '')}/public/services/execute`;
+  const logCtx = { request_id: requestId, central_url: url };
+  logger.log('info', 'Central POST /public/services/execute', { ...logCtx, target: isUuid ? 'instance_id' : 'slug' });
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Instance-Id': instanceId,
+    'X-Instance-Token': instanceToken,
+  };
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  } catch (err) {
+    logger.log('error', 'Central execute remote failed (network)', { ...logCtx, error: err.message, code: err.code });
+    throw Object.assign(new Error(`Central unreachable: ${err.message}`), { code: 'CENTRAL_NETWORK', cause: err });
+  }
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_) {
+    logger.log('error', 'Central execute remote response not JSON', { ...logCtx, status: res.status, body_preview: text.slice(0, 200) });
+    throw Object.assign(new Error(`Central returned invalid JSON (${res.status})`), { code: 'CENTRAL_INVALID_RESPONSE', status: res.status });
+  }
+  if (!res.ok) {
+    const msg = data?.message || data?.error || res.statusText || `HTTP ${res.status}`;
+    logger.log('warn', `Central execute remote error: ${msg}`, { ...logCtx, status: res.status, data: logger.sanitize(data) });
+    const err = new Error(msg);
+    err.code = data?.code || 'CENTRAL_ERROR';
+    err.status = res.status;
+    err.details = data;
+    throw err;
+  }
+  return { statusCode: res.status, data };
+}
+
 module.exports = {
   registerCentralPreregister,
   registerCentral,
@@ -314,4 +425,6 @@ module.exports = {
   getCentralEvents,
   ackCentralEvent,
   postExportedServices,
+  getInstanceByIdOrSlug,
+  executeRemoteService,
 };
