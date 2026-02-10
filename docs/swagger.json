@@ -463,7 +463,7 @@
         "tags": [
           "Agents"
         ],
-        "description": "Create a new pseudonymous agent. The secret is returned only once; store it securely.",
+        "description": "Create a new pseudonymous agent. The secret is returned only once; store it securely. When public registration is gated, registration_key (body or header) may be required.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -475,6 +475,10 @@
                 "properties": {
                   "name": {
                     "type": "string"
+                  },
+                  "registration_key": {
+                    "type": "string",
+                    "description": "Required when instance has a registration key set (temporary password from staff panel)."
                   }
                 }
               }
@@ -508,6 +512,27 @@
                           "description": "Only returned once; store securely."
                         }
                       }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
                     }
                   }
                 }
@@ -1082,6 +1107,13 @@
                   "export": {
                     "type": "boolean",
                     "default": false
+                  },
+                  "slug": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Unique slug for this service within the instance (optional)."
                   }
                 }
               }
@@ -1141,6 +1173,12 @@
                         },
                         "status": {
                           "type": "string"
+                        },
+                        "slug": {
+                          "type": [
+                            "null",
+                            "string"
+                          ]
                         },
                         "created_at": {
                           "type": "string",
@@ -1330,6 +1368,13 @@
                       "removed"
                     ],
                     "description": "paused or removed = inactive, not listed by default"
+                  },
+                  "slug": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Unique slug for this service (set null to clear)."
                   }
                 }
               }
@@ -1630,13 +1675,12 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "service_id",
                   "request"
                 ],
                 "properties": {
-                  "service_id": {
+                  "service": {
                     "type": "string",
-                    "format": "uuid"
+                    "description": "Target: \"service\" (current instance) or \"instance:service\" (first \":\" splits instance and service)"
                   },
                   "request": {
                     "type": "object",
@@ -1645,6 +1689,15 @@
                   "idempotency_key": {
                     "type": "string",
                     "description": "Optional; same semantics as X-Idempotency-Key header."
+                  },
+                  "callback_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Required for remote: URL to POST result when execution completes (AGO flow)"
+                  },
+                  "callback_token": {
+                    "type": "string",
+                    "description": "Optional token sent in X-Callback-Token when calling callback_url"
                   }
                 }
               }
@@ -3455,6 +3508,14 @@
                   "owner_email": {
                     "type": "string",
                     "format": "email"
+                  },
+                  "slug": {
+                    "type": "string",
+                    "description": "Required when using Central"
+                  },
+                  "license_code": {
+                    "type": "string",
+                    "description": "Required when slug contains reserved term"
                   }
                 }
               }
