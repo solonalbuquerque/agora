@@ -4,6 +4,7 @@ const config = require('../config');
 const servicesDb = require('../db/services');
 const walletsDb = require('../db/wallets');
 const agentsDb = require('../db/agents');
+const staffSettingsDb = require('../db/staffSettings');
 const { created, success, list } = require('../lib/responses');
 const { badRequest, notFound, forbidden } = require('../lib/errors');
 const { formatMoney } = require('../lib/money');
@@ -48,6 +49,7 @@ async function servicesRoutes(fastify, opts) {
           price_cents: { type: 'integer', minimum: 0 },
           coin: { type: 'string', maxLength: 16 },
           export: { type: 'boolean', default: false },
+          slug: { type: ['string', 'null'], description: 'Unique slug for this service within the instance (optional).' },
         },
       },
       response: {
@@ -69,6 +71,7 @@ async function servicesRoutes(fastify, opts) {
                 price_formated: { type: 'string' },
                 coin: { type: 'string' },
                 status: { type: 'string' },
+                slug: { type: ['string', 'null'] },
                 created_at: { type: 'string', format: 'date-time' },
               },
             },
@@ -81,6 +84,18 @@ async function servicesRoutes(fastify, opts) {
     const body = request.body || {};
     if (!body.name || !body.webhook_url) {
       return badRequest(reply, 'name and webhook_url are required');
+    }
+    const globalCanRegister = (await staffSettingsDb.get('bots_can_register_services')) !== 'false';
+    const agent = await agentsDb.getById(ownerAgentId);
+    const canRegister = agent?.can_register_services === true ? true : agent?.can_register_services === false ? false : null;
+    if (canRegister === false) {
+      return forbidden(reply, 'Your agent is not allowed to register services.');
+    }
+    if (!globalCanRegister && canRegister !== true) {
+      return forbidden(reply, 'Bots are not allowed to register services on this instance.');
+    }
+    if (body.slug !== undefined && body.slug !== null && !servicesDb.isValidSlug(body.slug)) {
+      return badRequest(reply, 'Invalid slug: use only lowercase letters, numbers and hyphens; max 64 characters.');
     }
     const priceCents = body.price_cents ?? 0;
     const wantExport = body.export === true;
@@ -105,6 +120,7 @@ async function servicesRoutes(fastify, opts) {
       price_cents: priceCents,
       coin: body.coin || 'AGOTEST',
       export: wantExport,
+      slug: body.slug,
     });
     if (wantExport) {
       await recordAuditEvent({
@@ -268,6 +284,7 @@ async function servicesRoutes(fastify, opts) {
           price_cents: { type: 'integer', minimum: 0 },
           coin: { type: 'string', maxLength: 16 },
           status: { type: 'string', enum: ['active', 'paused', 'removed'], description: 'paused or removed = inactive, not listed by default' },
+          slug: { type: ['string', 'null'], description: 'Unique slug for this service (set null to clear).' },
         },
       },
       response: {
@@ -289,6 +306,9 @@ async function servicesRoutes(fastify, opts) {
       return forbidden(reply, 'Only the owner can update this service');
     }
     const body = request.body || {};
+    if (body.slug !== undefined && body.slug !== null && !servicesDb.isValidSlug(body.slug)) {
+      return badRequest(reply, 'Invalid slug: use only lowercase letters, numbers and hyphens; max 64 characters.');
+    }
     const newPriceCents = body.price_cents !== undefined ? body.price_cents : service.price_cents;
     if (newPriceCents > 0) {
       const owner = await agentsDb.getById(agentId);
@@ -306,6 +326,7 @@ async function servicesRoutes(fastify, opts) {
       price_cents: body.price_cents,
       coin: body.coin,
       status: body.status,
+      slug: body.slug,
     });
     const coinCfg = await walletsDb.getCoin(updated.coin);
     const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
@@ -327,7 +348,7 @@ async function servicesRoutes(fastify, opts) {
   }, async (request, reply) => {
     const serviceRef = request.params.service_ref;
     const { payload } = request.body || {};
-    const service = await servicesDb.getById(serviceRef);
+    const service = await servicesDb.getByIdOrSlug(serviceRef);
     if (!service) return notFound(reply, 'Service not found');
     if (service.status !== 'active') return badRequest(reply, 'Service is not active');
     if (!service.webhook_url) return badRequest(reply, 'Service has no webhook_url');

@@ -130,4 +130,6 @@ export const api = {
   servicesExported: (q) => request(`/staff/api/services/exported?${new URLSearchParams(q || {})}`),
   serviceResumeExport: (id) => request(`/staff/api/services/${id}/resume-export`, { method: 'POST' }),
   settingsUpdate: (body) => request('/staff/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  /** Generate a new public bot registration key. Returns { registration_key } once; copy it. */
+  generateRegistrationKey: () => request('/staff/api/settings/registration-key/generate', { method: 'POST' }),
 };

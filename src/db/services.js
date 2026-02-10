@@ -3,6 +3,22 @@
 const { query } = require('./index');
 const { serviceId } = require('../lib/ids');
 
+/** Slug validation: [a-z0-9][a-z0-9-]* max 64 chars */
+const SLUG_REGEX = /^[a-z0-9][a-z0-9-]*$/;
+const SLUG_MAX_LEN = 64;
+
+function normalizeSlug(slug) {
+  if (slug == null || typeof slug !== 'string') return null;
+  const s = slug.trim().toLowerCase();
+  return s === '' ? null : s;
+}
+
+function isValidSlug(slug) {
+  const s = normalizeSlug(slug);
+  if (!s) return true; // null/empty is valid (no slug)
+  return s.length <= SLUG_MAX_LEN && SLUG_REGEX.test(s);
+}
+
 async function create(data) {
   const id = serviceId();
   const {
@@ -15,12 +31,14 @@ async function create(data) {
     price_cents = 0,
     coin = 'AGOTEST',
     export: exportFlag = false,
+    slug: slugInput = null,
   } = data;
+  const slug = normalizeSlug(slugInput);
   const visibility = exportFlag ? 'exported' : 'local';
   const exportStatus = exportFlag ? 'active' : 'inactive';
   await query(
-    `INSERT INTO services (id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, visibility, export_status, exported_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12)`,
+    `INSERT INTO services (id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, visibility, export_status, exported_at, slug)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $11, $12, $13)`,
     [
       id,
       owner_agent_id,
@@ -34,6 +52,7 @@ async function create(data) {
       visibility,
       exportStatus,
       exportFlag ? new Date() : null,
+      slug || null,
     ]
   );
   return getById(id);
@@ -41,11 +60,32 @@ async function create(data) {
 
 async function getById(id) {
   const res = await query(
-    `SELECT id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, created_at
+    `SELECT id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, slug, created_at
      FROM services WHERE id = $1`,
     [id]
   );
   return res.rows[0] || null;
+}
+
+async function getBySlug(slug) {
+  if (!slug || typeof slug !== 'string') return null;
+  const s = slug.trim().toLowerCase();
+  if (!s) return null;
+  const res = await query(
+    `SELECT id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, slug, created_at
+     FROM services WHERE slug = $1`,
+    [s]
+  );
+  return res.rows[0] || null;
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+async function getByIdOrSlug(idOrSlug) {
+  if (!idOrSlug || typeof idOrSlug !== 'string') return null;
+  const s = idOrSlug.trim();
+  if (UUID_REGEX.test(s)) return getById(s);
+  return getBySlug(s);
 }
 
 async function list(filters = {}) {
@@ -89,7 +129,7 @@ async function list(filters = {}) {
 
   // Get rows with pagination
   const sql = `SELECT id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status,
-               visibility, export_status, exported_at, suspended_at, export_reason, created_at
+               visibility, export_status, exported_at, suspended_at, export_reason, slug, created_at
                FROM services${whereSql} ORDER BY created_at DESC LIMIT $${i++} OFFSET $${i++}`;
   params.push(Number(limit) || 50, Number(offset) || 0);
   const res = await query(sql, params);
@@ -97,7 +137,7 @@ async function list(filters = {}) {
 }
 
 async function update(id, data) {
-  const allowed = ['name', 'description', 'webhook_url', 'input_schema', 'output_schema', 'price_cents', 'coin', 'status', 'visibility', 'export_status', 'exported_at', 'suspended_at', 'export_reason'];
+  const allowed = ['name', 'description', 'webhook_url', 'input_schema', 'output_schema', 'price_cents', 'coin', 'status', 'visibility', 'export_status', 'exported_at', 'suspended_at', 'export_reason', 'slug'];
   const updates = [];
   const values = [];
   let i = 1;
@@ -114,12 +154,13 @@ async function update(id, data) {
     if (key === 'exported_at' || key === 'suspended_at') {
       // leave as provided (Date or null)
     }
+    if (key === 'slug') val = normalizeSlug(val);
     updates.push(`${key} = $${i++}`);
     values.push(val);
   }
   if (updates.length === 0) return getById(id);
   values.push(id);
-  const sql = `UPDATE services SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, visibility, export_status, exported_at, suspended_at, export_reason, created_at`;
+  const sql = `UPDATE services SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, owner_agent_id, name, description, webhook_url, input_schema, output_schema, price_cents, coin, status, visibility, export_status, exported_at, suspended_at, export_reason, slug, created_at`;
   const res = await query(sql, values);
   return res.rows[0] || null;
 }
@@ -158,9 +199,13 @@ async function resumeExport(id) {
 module.exports = {
   create,
   getById,
+  getBySlug,
+  getByIdOrSlug,
   list,
   update,
   setExport,
   suspendAllExported,
   resumeExport,
+  isValidSlug,
+  normalizeSlug,
 };

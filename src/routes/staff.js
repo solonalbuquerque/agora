@@ -400,13 +400,14 @@ async function staffRoutes(fastify, opts) {
         properties: {
           status: { type: 'string', enum: ['active', 'limited', 'banned'] },
           trust_level: { type: 'integer', minimum: 0 },
+          can_register_services: { type: ['boolean', 'null'], description: 'null = inherit global, true = allowed, false = denied' },
         },
       },
       response: { 200: { type: 'object' } },
     },
   }, async (request, reply) => {
     const { id } = request.params;
-    const { status, trust_level: trustLevel } = request.body || {};
+    const { status, trust_level: trustLevel, can_register_services: canRegisterServices } = request.body || {};
     const agent = await agentsDb.getById(id);
     if (!agent) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Agent not found' });
     const maxLevel = getMaxTrustLevel();
@@ -431,6 +432,10 @@ async function staffRoutes(fastify, opts) {
           request_id: request.requestId,
         });
       }
+    }
+    if (canRegisterServices !== undefined) {
+      const val = canRegisterServices === null ? null : !!canRegisterServices;
+      await agentsDb.updateCanRegisterServices(id, val);
     }
     const updated = await agentsDb.getById(id);
     return reply.send({ ok: true, data: updated });
@@ -644,6 +649,9 @@ async function staffRoutes(fastify, opts) {
     const compliance = require('../lib/compliance');
     const compliant = await compliance.isInstanceCompliant();
     const exportEnabled = (await staffSettingsDb.get('export_services_enabled')) === 'true';
+    const publicBotRegEnabled = (await staffSettingsDb.get('public_bot_registration_enabled')) === 'true';
+    const publicBotRegKeyHash = await staffSettingsDb.get('public_bot_registration_key_hash');
+    const botsCanRegisterServices = (await staffSettingsDb.get('bots_can_register_services')) !== 'false';
     const baseUrl = (config.agoraPublicUrl || '').replace(/\/$/, '') || `http://localhost:${config.port || 3000}`;
     const response = {
       ok: true,
@@ -654,6 +662,9 @@ async function staffRoutes(fastify, opts) {
         staff2faForced: config.staff2faForced,
         reservedCoin: compliance.RESERVED_COIN,
         export_services_enabled: exportEnabled,
+        public_bot_registration_enabled: publicBotRegEnabled,
+        public_bot_registration_key_defined: !!(publicBotRegKeyHash && publicBotRegKeyHash.length > 0),
+        bots_can_register_services: botsCanRegisterServices,
         ago_inbound_derived: compliant ? 'enabled' : 'disabled',
         ago_outbound_derived: compliant ? 'enabled' : 'disabled',
         export_derived: compliant && exportEnabled ? 'enabled' : 'disabled',
@@ -669,17 +680,71 @@ async function staffRoutes(fastify, opts) {
   fastify.patch('/api/settings', {
     schema: {
       tags: ['Staff'],
-      description: 'Update staff settings (e.g. export_services_enabled)',
-      body: { type: 'object', properties: { export_services_enabled: { type: 'boolean' } } },
+      description: 'Update staff settings (export_services_enabled, public_bot_registration_enabled, bots_can_register_services, registration_key_remove)',
+      body: {
+        type: 'object',
+        properties: {
+          export_services_enabled: { type: 'boolean' },
+          public_bot_registration_enabled: { type: 'boolean' },
+          bots_can_register_services: { type: 'boolean' },
+          registration_key_remove: { type: 'boolean', description: 'Set true to clear the public bot registration key' },
+        },
+      },
       response: { 200: { type: 'object' } },
     },
   }, async (request, reply) => {
-    const { export_services_enabled } = request.body || {};
-    if (typeof export_services_enabled === 'boolean') {
-      await staffSettingsDb.set('export_services_enabled', export_services_enabled ? 'true' : 'false');
+    const body = request.body || {};
+    if (typeof body.export_services_enabled === 'boolean') {
+      await staffSettingsDb.set('export_services_enabled', body.export_services_enabled ? 'true' : 'false');
+    }
+    if (typeof body.public_bot_registration_enabled === 'boolean') {
+      await staffSettingsDb.set('public_bot_registration_enabled', body.public_bot_registration_enabled ? 'true' : 'false');
+    }
+    if (typeof body.bots_can_register_services === 'boolean') {
+      await staffSettingsDb.set('bots_can_register_services', body.bots_can_register_services ? 'true' : 'false');
+    }
+    if (body.registration_key_remove === true) {
+      await staffSettingsDb.set('public_bot_registration_key_hash', '');
     }
     const exportEnabled = (await staffSettingsDb.get('export_services_enabled')) === 'true';
-    return reply.send({ ok: true, data: { export_services_enabled: exportEnabled } });
+    const publicBotRegEnabled = (await staffSettingsDb.get('public_bot_registration_enabled')) === 'true';
+    const publicBotRegKeyHash = await staffSettingsDb.get('public_bot_registration_key_hash');
+    const botsCanRegister = (await staffSettingsDb.get('bots_can_register_services')) !== 'false';
+    return reply.send({
+      ok: true,
+      data: {
+        export_services_enabled: exportEnabled,
+        public_bot_registration_enabled: publicBotRegEnabled,
+        public_bot_registration_key_defined: !!(publicBotRegKeyHash && publicBotRegKeyHash.length > 0),
+        bots_can_register_services: botsCanRegister,
+      },
+    });
+  });
+
+  fastify.post('/api/settings/registration-key/generate', {
+    schema: {
+      tags: ['Staff'],
+      description: 'Generate a new public bot registration key. Returns the key in plain text once; store it securely. Previous key is replaced.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            data: {
+              type: 'object',
+              properties: {
+                registration_key: { type: 'string', description: 'Use this in body registration_key or header X-Registration-Key when calling POST /agents/register. Shown only once.' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (_request, reply) => {
+    const key = crypto.randomBytes(32).toString('hex');
+    const hash = crypto.createHash('sha256').update(key, 'utf8').digest('hex');
+    await staffSettingsDb.set('public_bot_registration_key_hash', hash);
+    return reply.send({ ok: true, data: { registration_key: key } });
   });
 
   const instanceDb = require('../db/instance');

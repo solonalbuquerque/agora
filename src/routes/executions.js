@@ -94,13 +94,11 @@ async function executionsRoutes(fastify, opts) {
       },
       body: {
         type: 'object',
-        required: ['service_id', 'request'],
+        required: ['request'],
         properties: {
-          service_id: { type: 'string', format: 'uuid', description: 'Local service UUID (local execution) or service_ref in target instance (remote)' },
+          service: { type: 'string', description: 'Target: "service" (current instance) or "instance:service" (first ":" splits instance and service)' },
           request: { type: 'object', description: 'Payload sent to the service webhook' },
           idempotency_key: { type: 'string', description: 'Optional; same semantics as X-Idempotency-Key header.' },
-          instance_id: { type: 'string', description: 'Target instance UUID (use this or slug for remote; omit for local)' },
-          slug: { type: 'string', description: 'Target instance slug (use this or instance_id for remote; omit for local)' },
           callback_url: { type: 'string', format: 'uri', description: 'Required for remote: URL to POST result when execution completes (AGO flow)' },
           callback_token: { type: 'string', description: 'Optional token sent in X-Callback-Token when calling callback_url' },
         },
@@ -132,109 +130,146 @@ async function executionsRoutes(fastify, opts) {
   }, async (request, reply) => {
     const requesterAgentId = request.agentId;
     const body = request.body || {};
-    const { service_id: serviceId, request: requestPayload, instance_id: instanceIdParam, slug: slugParam, callback_url: callbackUrl, callback_token: callbackToken } = body;
+    const { service: rawService, service_id: rawServiceId, request: requestPayload, instance_id: rawInstanceId, slug: rawSlug, callback_url: callbackUrl, callback_token: callbackToken } = body;
     const idempotencyKey = request.headers['x-idempotency-key'] || body.idempotency_key || null;
 
-    if (!serviceId) return badRequest(reply, 'service_id is required');
+    let serviceId;
+    let targetInstanceIdOrSlug;
+
+    const serviceFieldTrimmed = rawService != null && String(rawService).trim() !== '' ? String(rawService).trim() : null;
+    if (serviceFieldTrimmed) {
+      const idx = serviceFieldTrimmed.indexOf(':');
+      if (idx === -1) {
+        targetInstanceIdOrSlug = null;
+        serviceId = serviceFieldTrimmed;
+      } else {
+        const instancePart = serviceFieldTrimmed.slice(0, idx).trim();
+        const servicePart = serviceFieldTrimmed.slice(idx + 1).trim();
+        if (!instancePart || !servicePart) {
+          return badRequest(reply, 'When using "instance:service" format, both parts must be non-empty');
+        }
+        targetInstanceIdOrSlug = instancePart;
+        serviceId = servicePart;
+      }
+    } else {
+      serviceId = rawServiceId != null && String(rawServiceId).trim() !== '' ? String(rawServiceId).trim() : null;
+      if (!serviceId) {
+        return badRequest(reply, 'Either service or service_id is required');
+      }
+      // Normalize instance target: empty (undefined, null, "") = this instance (local). instance_id can be UUID or instance slug.
+      const instanceIdNormalized = rawInstanceId != null && String(rawInstanceId).trim() !== '' ? String(rawInstanceId).trim() : null;
+      const slugNormalized = rawSlug != null && String(rawSlug).trim() !== '' ? String(rawSlug).trim() : null;
+      if (instanceIdNormalized && slugNormalized) {
+        return badRequest(reply, 'Provide either instance_id or slug, not both');
+      }
+      targetInstanceIdOrSlug = instanceIdNormalized || slugNormalized;
+    }
 
     const centralUrl = config.agoraCenterUrl;
     const myInstanceId = config.instanceId;
     const myInstanceToken = config.instanceToken;
 
-    if (instanceIdParam && slugParam) {
-      return badRequest(reply, 'Provide either instance_id or slug, not both');
+    // No target specified → this instance handles the request (local execution)
+    if (!targetInstanceIdOrSlug) {
+      return runLocalExecute();
     }
 
-    if (instanceIdParam || slugParam) {
-      if (!callbackUrl || typeof callbackUrl !== 'string') {
-        return badRequest(reply, 'callback_url is required for remote execution (AGO async flow)');
+    // Target specified → resolve via Central, then validate: if current instance is the target, run local; otherwise forward to Central immediately (remote)
+    if (!callbackUrl || typeof callbackUrl !== 'string') {
+      return badRequest(reply, 'callback_url is required for remote execution (AGO async flow)');
+    }
+    if (!centralUrl || !myInstanceId || !myInstanceToken) {
+      return reply.code(503).send({
+        ok: false,
+        code: 'CENTRAL_NOT_CONFIGURED',
+        message: 'Remote execution requires AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN',
+      });
+    }
+
+    let targetInstance;
+    try {
+      targetInstance = await centralClient.getInstanceByIdOrSlug(centralUrl, targetInstanceIdOrSlug, request.requestId);
+    } catch (err) {
+      if (err.status === 404) {
+        return notFound(reply, 'Target instance not found');
       }
-      if (!centralUrl || !myInstanceId || !myInstanceToken) {
-        return reply.code(503).send({
-          ok: false,
-          code: 'CENTRAL_NOT_CONFIGURED',
-          message: 'Remote execution requires AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN',
-        });
+      throw err;
+    }
+
+    const currentInstance = await compliance.getCurrentInstance();
+    const currentInstanceId = currentInstance?.id || myInstanceId;
+
+    // This instance is the target → run local execution
+    if (targetInstance.id === currentInstanceId) {
+      return runLocalExecute();
+    }
+
+    // Target is another instance → forward to Central immediately (remote; result via callback_url)
+    if (targetInstance.status !== 'registered') {
+      return badRequest(reply, 'Target instance is not active or not allowed for remote execution');
+    }
+    try {
+      const result = await centralClient.executeRemoteService(
+        centralUrl,
+        myInstanceId,
+        myInstanceToken,
+        {
+          targetInstanceIdOrSlug,
+          serviceRef: serviceId,
+          fromAgentRef: requesterAgentId,
+          payload: requestPayload || {},
+          idempotencyKey: idempotencyKey || undefined,
+          callbackUrl,
+          callbackToken: callbackToken || '',
+        },
+        request.requestId
+      );
+      if (result.statusCode === 202) {
+        return reply.code(202).send(result.data);
       }
-      const targetInstanceIdOrSlug = instanceIdParam || slugParam;
-      let targetInstance;
-      try {
-        targetInstance = await centralClient.getInstanceByIdOrSlug(centralUrl, targetInstanceIdOrSlug, request.requestId);
-      } catch (err) {
-        if (err.status === 404) {
-          return notFound(reply, 'Target instance not found');
-        }
-        throw err;
+      return reply.code(result.statusCode).send(result.data);
+    } catch (err) {
+      if (err.status === 402) {
+        return reply.code(402).send(err.details || { code: 'INSUFFICIENT_BALANCE', message: err.message });
       }
-      const currentInstance = await compliance.getCurrentInstance();
-      const currentInstanceId = currentInstance?.id || myInstanceId;
-      if (targetInstance.id === currentInstanceId) {
-        return runLocalExecute();
+      if (err.status === 404) {
+        return notFound(reply, err.message || 'Service or instance not found');
       }
-      if (targetInstance.status !== 'registered') {
-        return badRequest(reply, 'Target instance is not active or not allowed for remote execution');
+      if (err.status === 400) {
+        return badRequest(reply, err.message || 'Bad request');
       }
-      try {
-        const result = await centralClient.executeRemoteService(
-          centralUrl,
-          myInstanceId,
-          myInstanceToken,
-          {
-            targetInstanceIdOrSlug,
-            serviceRef: serviceId,
-            fromAgentRef: requesterAgentId,
-            payload: requestPayload || {},
-            callbackUrl,
-            callbackToken: callbackToken || '',
-          },
-          request.requestId
-        );
-        if (result.statusCode === 202) {
-          return reply.code(202).send(result.data);
-        }
-        return reply.code(result.statusCode).send(result.data);
-      } catch (err) {
-        if (err.status === 402) {
-          return reply.code(402).send(err.details || { code: 'INSUFFICIENT_BALANCE', message: err.message });
-        }
-        if (err.status === 404) {
-          return notFound(reply, err.message || 'Service or instance not found');
-        }
-        if (err.status === 400) {
-          return badRequest(reply, err.message || 'Bad request');
-        }
-        throw err;
-      }
+      throw err;
     }
 
     async function runLocalExecute() {
-    const service = await servicesDb.getById(serviceId);
+    const service = await servicesDb.getByIdOrSlug(serviceId);
     if (!service) return notFound(reply, 'Service not found');
     if (service.status !== 'active') {
       return badRequest(reply, 'Service is not active');
     }
+    const resolvedServiceId = service.id;
 
     const price = Number(service.price_cents) || 0;
     const coin = (service.coin || DEFAULT_COIN).toString().slice(0, 16);
 
     let executionRow;
     const existing = idempotencyKey
-      ? await executionsDb.findByIdempotencyReadOnly(requesterAgentId, serviceId, idempotencyKey)
+      ? await executionsDb.findByIdempotencyReadOnly(requesterAgentId, resolvedServiceId, idempotencyKey)
       : null;
     if (existing) {
-      request.serviceId = serviceId;
-      securityLog(request, 'idempotency_hit', { service_id: serviceId });
-      metrics.executionRecorded(existing.status || 'success', serviceId);
+      request.serviceId = resolvedServiceId;
+      securityLog(request, 'idempotency_hit', { service_id: resolvedServiceId });
+      metrics.executionRecorded(existing.status || 'success', resolvedServiceId);
       const row = await executionsDb.getById(existing.id);
       return created(reply, row);
     }
 
     const requestId = request.requestId || null;
     await withTransaction(async (client) => {
-      executionRow = await executionsDb.create(client, requesterAgentId, serviceId, requestPayload, idempotencyKey, requestId);
+      executionRow = await executionsDb.create(client, requesterAgentId, resolvedServiceId, requestPayload, idempotencyKey, requestId);
       if (price > 0) {
         await walletsDb.debit(client, requesterAgentId, coin, price, {
-          service_id: serviceId,
+          service_id: resolvedServiceId,
           type: 'execution',
           execution_uuid: executionRow.uuid,
         }, requestId);
@@ -243,9 +278,9 @@ async function executionsRoutes(fastify, opts) {
 
     const validation = await validateWebhookUrl(service.webhook_url);
     if (!validation.ok) {
-      request.serviceId = serviceId;
-      securityLog(request, 'webhook_blocked_ssrf', { reason: validation.reason, service_id: serviceId });
-      metrics.executionRecorded('failed', serviceId);
+      request.serviceId = resolvedServiceId;
+      securityLog(request, 'webhook_blocked_ssrf', { reason: validation.reason, service_id: resolvedServiceId });
+      metrics.executionRecorded('failed', resolvedServiceId);
       const errPayload = { error: 'webhook_blocked_ssrf', message: validation.reason };
       await withTransaction(async (client) => {
         await executionsDb.updateResult(client, executionRow.id, 'failed', errPayload, null);
@@ -267,17 +302,17 @@ async function executionsRoutes(fastify, opts) {
     )
       .then((result) => {
         if (result.statusCode >= 200 && result.statusCode < 300) {
-          recordSuccess(serviceId);
+          recordSuccess(resolvedServiceId);
         } else {
-          recordFailure(serviceId).then(({ opened }) => {
+          recordFailure(resolvedServiceId).then(({ opened }) => {
             if (opened) {
-              servicesDb.update(serviceId, { status: 'paused' });
-              securityLog(request, 'circuit_breaker_triggered', { service_id: serviceId });
+              servicesDb.update(resolvedServiceId, { status: 'paused' });
+              securityLog(request, 'circuit_breaker_triggered', { service_id: resolvedServiceId });
               recordAuditEvent({
                 event_type: 'SERVICE_PAUSED',
                 actor_type: 'system',
                 target_type: 'service',
-                target_id: serviceId,
+                target_id: resolvedServiceId,
                 metadata: { reason: 'circuit_breaker' },
                 request_id: request.requestId,
               }).catch(() => {});
@@ -286,15 +321,15 @@ async function executionsRoutes(fastify, opts) {
         }
       })
       .catch(async () => {
-        const { opened } = await recordFailure(serviceId);
+        const { opened } = await recordFailure(resolvedServiceId);
         if (opened) {
-          await servicesDb.update(serviceId, { status: 'paused' });
-          securityLog(request, 'circuit_breaker_triggered', { service_id: serviceId });
+          await servicesDb.update(resolvedServiceId, { status: 'paused' });
+          securityLog(request, 'circuit_breaker_triggered', { service_id: resolvedServiceId });
           await recordAuditEvent({
             event_type: 'SERVICE_PAUSED',
             actor_type: 'system',
             target_type: 'service',
-            target_id: serviceId,
+            target_id: resolvedServiceId,
             metadata: { reason: 'circuit_breaker' },
             request_id: request.requestId,
           });
@@ -302,7 +337,7 @@ async function executionsRoutes(fastify, opts) {
       });
 
     await executionsDb.setAwaitingCallback(executionRow.id);
-    metrics.executionRecorded('awaiting_callback', serviceId);
+    metrics.executionRecorded('awaiting_callback', resolvedServiceId);
     const row = await executionsDb.getById(executionRow.id);
     return created(reply, row);
     }

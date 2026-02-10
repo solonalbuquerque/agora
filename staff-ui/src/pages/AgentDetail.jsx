@@ -84,6 +84,16 @@ export default function AgentDetail() {
     }
   };
 
+  const handleCanRegisterServicesChange = async (value) => {
+    const payload = value === 'inherit' || value === '' ? { can_register_services: null } : { can_register_services: value === 'true' };
+    try {
+      await api.updateAgent(id, payload);
+      load();
+    } catch (err) {
+      alert(err?.message || 'Error');
+    }
+  };
+
   // Calculate total balance across all wallets
   const totalBalance = wallets.reduce((acc, w) => acc + Number(w.balance_cents), 0);
 
@@ -182,6 +192,20 @@ export default function AgentDetail() {
                               {n}
                             </option>
                           ))}
+                    </select>
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ fontWeight: 'bold' }}>Can register services</td>
+                  <td>
+                    <select
+                      value={agent.can_register_services === true ? 'true' : agent.can_register_services === false ? 'false' : 'inherit'}
+                      onChange={(e) => handleCanRegisterServicesChange(e.target.value)}
+                      style={{ padding: '0.25rem 0.5rem', minWidth: '120px' }}
+                    >
+                      <option value="inherit">Inherit (global setting)</option>
+                      <option value="true">Yes</option>
+                      <option value="false">No</option>
                     </select>
                   </td>
                 </tr>

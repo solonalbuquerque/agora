@@ -354,12 +354,13 @@ async function getInstanceByIdOrSlug(baseUrl, idOrSlug, requestId = null) {
 }
 
 /**
- * Request Central to execute a remote service (instance_id or slug + service_ref). Uses instance auth.
+ * Request Central to execute a remote service. Sends reduced body: { service, request, idempotency_key?, callback_url, callback_token }.
+ * service is "instance:service" (target instance slug or UUID + ":" + service ref). Uses instance auth.
  * Central accepts execution and returns 202; result is POSTed to callback_url when done (AGO flow).
  * @param {string} baseUrl - AGORA_CENTER_URL
  * @param {string} instanceId - this instance id (caller)
  * @param {string} instanceToken - this instance activation token
- * @param {{ targetInstanceIdOrSlug: string, serviceRef: string, fromAgentRef?: string, payload?: object, callbackUrl: string, callbackToken?: string }} opts
+ * @param {{ targetInstanceIdOrSlug: string, serviceRef: string, fromAgentRef?: string, payload?: object, idempotencyKey?: string, callbackUrl: string, callbackToken?: string }} opts
  * @param {string} [requestId]
  * @returns {Promise<{ statusCode: number, data: object }>} - 202 with execution_id, or error
  */
@@ -367,29 +368,25 @@ async function executeRemoteService(baseUrl, instanceId, instanceToken, opts, re
   if (!baseUrl || !instanceId || !instanceToken) {
     throw Object.assign(new Error('executeRemoteService requires baseUrl, instanceId and instanceToken'), { code: 'BAD_REQUEST' });
   }
-  const { targetInstanceIdOrSlug, serviceRef, fromAgentRef, payload, callbackUrl, callbackToken } = opts || {};
+  const { targetInstanceIdOrSlug, serviceRef, fromAgentRef, payload, idempotencyKey, callbackUrl, callbackToken } = opts || {};
   if (!targetInstanceIdOrSlug || !serviceRef) {
     throw Object.assign(new Error('executeRemoteService requires targetInstanceIdOrSlug and serviceRef'), { code: 'BAD_REQUEST' });
   }
   if (!callbackUrl || typeof callbackUrl !== 'string') {
     throw Object.assign(new Error('executeRemoteService requires callbackUrl (AGO async execution)'), { code: 'BAD_REQUEST' });
   }
-  const isUuid = UUID_REGEX.test(String(targetInstanceIdOrSlug).trim());
+  const serviceValue = `${String(targetInstanceIdOrSlug).trim()}:${String(serviceRef).trim()}`;
   const body = {
-    service_ref: serviceRef,
-    from_agent_ref: fromAgentRef || '',
-    payload: payload || {},
+    service: serviceValue,
+    request: payload || {},
     callback_url: callbackUrl,
     callback_token: callbackToken || '',
   };
-  if (isUuid) {
-    body.instance_id = String(targetInstanceIdOrSlug).trim();
-  } else {
-    body.slug = String(targetInstanceIdOrSlug).trim();
-  }
+  if (fromAgentRef != null && String(fromAgentRef).trim() !== '') body.from_agent_ref = String(fromAgentRef).trim();
+  if (idempotencyKey != null && String(idempotencyKey).trim() !== '') body.idempotency_key = String(idempotencyKey).trim();
   const url = `${baseUrl.replace(/\/$/, '')}/public/services/execute`;
   const logCtx = { request_id: requestId, central_url: url };
-  logger.log('info', 'Central POST /public/services/execute', { ...logCtx, target: isUuid ? 'instance_id' : 'slug' });
+  logger.log('info', 'Central POST /public/services/execute', { ...logCtx, service: serviceValue });
   const headers = {
     'Content-Type': 'application/json',
     'X-Instance-Id': instanceId,

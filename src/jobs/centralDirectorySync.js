@@ -21,6 +21,7 @@ function mapServiceToCentral(service) {
   const priceAgoCents = coin.toUpperCase() === reservedCoin.toUpperCase() ? priceCents : 0;
   const payload = {
     service_ref: service.id,
+    service_slug: service.slug || null,
     name: service.name || null,
     description: service.description || null,
     webhook_url: service.webhook_url || null,

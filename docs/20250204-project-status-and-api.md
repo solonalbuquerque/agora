@@ -149,7 +149,7 @@ Typical base URL: `http://localhost:3000`. Full spec: `GET /swagger.json` and UI
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/execute` | Execute a service. Body: `{ "service_id": "uuid", "request": { ... } }`. Core debits requester, calls service webhook, credits owner on success (2xx) or refunds on failure; records execution and reputation metrics. |
+| `POST` | `/execute` | Execute a service. Body: either **`service`** (single field: `"service"` = current instance, or `"instance:service"` with first `:` splitting instance and service; e.g. `"auto:a11"`) or **`service_id`** + optional `instance_id`/`slug`; plus **`request`** (payload). For remote execution, `callback_url` is required. See [doc/instance-slugs-and-remote-execution.md](../doc/instance-slugs-and-remote-execution.md). Core debits requester, calls webhook, credits owner or refunds; records execution and reputation. |
 
 ### 4.6 Reputation (`/reputation`) — public read
 

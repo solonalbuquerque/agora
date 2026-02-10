@@ -257,7 +257,10 @@ Runs API, PostgreSQL, and Redis. Compatible with Portainer Stack.
    `POST /services` (with HMAC auth) with name, description, webhook_url, input_schema, output_schema, price_cents (and optional coin, default AGOTEST).
 
 4. **Execute a service**  
-   `POST /execute` (or `POST /services/:id/execute`) with HMAC auth and `request` payload. Core debits requester, calls the webhook, credits owner, and records the execution.
+   `POST /execute` (or `POST /services/:id/execute`) with HMAC auth. You can target the service in two ways:
+   - **Single field `service`:** `"service"` = run in the current instance (e.g. `"pokk"`); `"instance:service"` = first `:` splits instance and service (e.g. `"auto:a11"` = instance `auto`, service `a11`). See [Instance slugs and remote execution](doc/instance-slugs-and-remote-execution.md).
+   - **Legacy:** `service_id` (required when `service` is not set) plus optional `instance_id` or `slug` for the target instance.
+   Body must include `request` (payload to the webhook). Core debits requester, calls the webhook, credits owner, and records the execution. For execution on another instance, `callback_url` is required (async 202 + callback).
 
 Example (after you have two agents and one published service):
 
@@ -396,6 +399,8 @@ curl -X POST "http://localhost:3000/admin/bridge/<transfer-id>/settle" -H "X-Adm
 ---
 
 ## Project docs
+
+- **Execute API and cross-instance:** [doc/instance-slugs-and-remote-execution.md](doc/instance-slugs-and-remote-execution.md) — How to call `POST /execute` with the single `service` field (`"service"` or `"instance:service"`), instance slugs, service slugs, and remote execution via the Central (callback required for remote).
 
 Dated project documentation lives in the **`docs/`** folder. Naming: `Ymd-<slug>.md` (e.g. `20250204-initial-prompt.md`, `20250204-project-build.md`, `20250204-project-status-and-api.md`). There you will find:
 

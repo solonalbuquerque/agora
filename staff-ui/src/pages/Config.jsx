@@ -12,6 +12,9 @@ export default function Config() {
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupError, setBackupError] = useState(null);
   const [savingExport, setSavingExport] = useState(false);
+  const [savingBots, setSavingBots] = useState(false);
+  const [generatedKey, setGeneratedKey] = useState(null);
+  const [generatingKey, setGeneratingKey] = useState(false);
 
   const handleBackup = () => {
     setBackupError(null);
@@ -110,6 +113,129 @@ export default function Config() {
           </label>
         </div>
         <p className="muted">When enabled, agents can mark services as exported (visible to other instances when compliant).</p>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Bot registration (public)</h3>
+        <div style={{ marginBottom: '1rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={config.public_bot_registration_enabled === true}
+              onChange={async (e) => {
+                const v = e.target.checked;
+                setSavingBots(true);
+                try {
+                  await api.settingsUpdate({ public_bot_registration_enabled: v });
+                  setConfig((c) => (c ? { ...c, public_bot_registration_enabled: v } : c));
+                } finally {
+                  setSavingBots(false);
+                }
+              }}
+              disabled={savingBots}
+            />
+            Allow public bot registration (POST /agents/register)
+          </label>
+        </div>
+        <p className="muted">When enabled, anyone can create agents. When a registration key is set, callers must send it (body registration_key or header X-Registration-Key).</p>
+        <div style={{ marginTop: '1rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+          <span className="muted">Registration key:</span>
+          {config.public_bot_registration_key_defined ? (
+            <>
+              <span style={{ color: 'var(--success, #22c55e)' }}>Defined</span>
+              <button
+                type="button"
+                className="primary"
+                disabled={generatingKey}
+                onClick={async () => {
+                  setGeneratingKey(true);
+                  setGeneratedKey(null);
+                  try {
+                    const r = await api.generateRegistrationKey();
+                    const key = r?.data?.registration_key;
+                    if (key) {
+                      setGeneratedKey(key);
+                      setConfig((c) => (c ? { ...c, public_bot_registration_key_defined: true } : c));
+                    }
+                  } finally {
+                    setGeneratingKey(false);
+                  }
+                }}
+              >
+                {generatingKey ? 'Generating…' : 'Generate new key'}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setSavingBots(true);
+                  try {
+                    await api.settingsUpdate({ registration_key_remove: true });
+                    setConfig((c) => (c ? { ...c, public_bot_registration_key_defined: false } : c));
+                  } finally {
+                    setSavingBots(false);
+                  }
+                }}
+                disabled={savingBots}
+              >
+                Remove key
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="primary"
+              disabled={generatingKey}
+              onClick={async () => {
+                setGeneratingKey(true);
+                setGeneratedKey(null);
+                try {
+                  const r = await api.generateRegistrationKey();
+                  const key = r?.data?.registration_key;
+                  if (key) {
+                    setGeneratedKey(key);
+                    setConfig((c) => (c ? { ...c, public_bot_registration_key_defined: true } : c));
+                  }
+                } finally {
+                  setGeneratingKey(false);
+                }
+              }}
+            >
+              {generatingKey ? 'Generating…' : 'Generate key'}
+            </button>
+          )}
+        </div>
+        {generatedKey && (
+          <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--surface, #27272a)', borderRadius: '8px' }}>
+            <p style={{ margin: 0, fontWeight: 'bold' }}>New registration key (copy now; it will not be shown again):</p>
+            <code style={{ display: 'block', marginTop: '0.5rem', wordBreak: 'break-all' }}>{generatedKey}</code>
+            <button type="button" style={{ marginTop: '0.5rem' }} onClick={() => setGeneratedKey(null)}>Dismiss</button>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Bots can register services</h3>
+        <div style={{ marginBottom: '1rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={config.bots_can_register_services !== false}
+              onChange={async (e) => {
+                const v = e.target.checked;
+                setSavingBots(true);
+                try {
+                  await api.settingsUpdate({ bots_can_register_services: v });
+                  setConfig((c) => (c ? { ...c, bots_can_register_services: v } : c));
+                } finally {
+                  setSavingBots(false);
+                }
+              }}
+              disabled={savingBots}
+            />
+            Bots may register services (POST /services)
+          </label>
+        </div>
+        <p className="muted">When disabled, only staff can create services. You can override per agent in the agent detail page.</p>
       </div>
 
       <div className="card">

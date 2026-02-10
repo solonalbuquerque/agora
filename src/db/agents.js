@@ -26,7 +26,7 @@ async function create(name) {
 }
 
 async function getById(id) {
-  const res = await query('SELECT id, name, status, trust_level, created_at FROM agents WHERE id = $1', [id]);
+  const res = await query('SELECT id, name, status, trust_level, can_register_services, created_at FROM agents WHERE id = $1', [id]);
   return res.rows[0] || null;
 }
 
@@ -65,10 +65,15 @@ async function list(filters = {}) {
   const total = countRes.rows[0]?.total ?? 0;
   params.push(limit, offset);
   const res = await query(
-    `SELECT id, name, status, trust_level, created_at FROM agents WHERE ${where} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
+    `SELECT id, name, status, trust_level, can_register_services, created_at FROM agents WHERE ${where} ORDER BY created_at DESC LIMIT $${i} OFFSET $${i + 1}`,
     params
   );
   return { rows: res.rows, total };
+}
+
+async function updateCanRegisterServices(id, value) {
+  await query('UPDATE agents SET can_register_services = $1 WHERE id = $2', [value, id]);
+  return getById(id);
 }
 
 module.exports = {
@@ -77,5 +82,6 @@ module.exports = {
   getSecretById,
   updateStatus,
   updateTrustLevel,
+  updateCanRegisterServices,
   list,
 };
