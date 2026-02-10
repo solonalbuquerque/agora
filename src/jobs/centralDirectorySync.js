@@ -43,6 +43,9 @@ async function syncOnce() {
   if (!baseUrl || !instanceId || !instanceToken) return;
 
   const requestId = `central-dir-sync-${uuidv4()}`;
+  const instanceCentralPolicyDb = require('../db/instanceCentralPolicy');
+  const centralPolicy = await instanceCentralPolicyDb.get(instanceId);
+
   const { rows } = await servicesDb.list({
     status: 'active',
     visibility: 'exported',
@@ -50,7 +53,10 @@ async function syncOnce() {
     limit: 200,
     offset: 0,
   });
-  const services = (rows || []).map(mapServiceToCentral);
+  let services = (rows || []).map(mapServiceToCentral);
+  if (centralPolicy?.policy && centralPolicy.policy.allow_paid_services_export === false) {
+    services = services.filter((s) => (Number(s.price_ago_cents) || 0) === 0);
+  }
   if (services.length === 0) return;
 
   try {

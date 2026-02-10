@@ -11,6 +11,8 @@ async function start() {
     centralEventsConsumer.start();
     const centralDirectorySync = require('./jobs/centralDirectorySync');
     centralDirectorySync.start();
+    const centralPolicySync = require('./jobs/centralPolicySync');
+    centralPolicySync.start();
   } catch (err) {
     app.log.error(err);
     process.exit(1);

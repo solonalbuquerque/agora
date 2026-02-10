@@ -234,7 +234,18 @@ async function instanceRoutes(fastify) {
       inst = await instanceDb.getById(request.instanceId);
     }
     if (!inst) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Instance not found' });
-    return success(reply, { instance_id: inst.id, status: inst.status, registered_at: inst.registered_at });
+    const payload = { instance_id: inst.id, status: inst.status, registered_at: inst.registered_at };
+    if (config.agoraCenterUrl && inst.id) {
+      const instanceCentralPolicyDb = require('../db/instanceCentralPolicy');
+      const centralPolicy = await instanceCentralPolicyDb.get(inst.id);
+      if (centralPolicy) {
+        payload.trust_level = centralPolicy.trust_level;
+        payload.visibility_status = centralPolicy.visibility_status;
+        payload.central_policy = centralPolicy.policy;
+        payload.central_policy_updated_at = centralPolicy.updated_at;
+      }
+    }
+    return success(reply, payload);
   });
 }
 

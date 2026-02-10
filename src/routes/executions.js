@@ -229,6 +229,18 @@ async function executionsRoutes(fastify, opts) {
       }
       return reply.code(result.statusCode).send(result.data);
     } catch (err) {
+      const code = err.code || err.details?.error_code;
+      if (typeof code === 'string' && code.startsWith('TRUST_')) {
+        const { recordAuditEvent } = require('../lib/audit');
+        recordAuditEvent({
+          event_type: 'REMOTE_EXECUTION_REJECTED_TRUST_POLICY',
+          actor_type: 'system',
+          target_type: 'execution',
+          target_id: null,
+          metadata: { error_code: code, target_instance: targetInstanceIdOrSlug, service_ref: serviceId },
+          request_id: request.requestId,
+        }).catch(() => {});
+      }
       if (err.status === 402) {
         return reply.code(402).send(err.details || { code: 'INSUFFICIENT_BALANCE', message: err.message });
       }
@@ -237,6 +249,9 @@ async function executionsRoutes(fastify, opts) {
       }
       if (err.status === 400) {
         return badRequest(reply, err.message || 'Bad request');
+      }
+      if (err.status === 403 || err.status === 429) {
+        return reply.code(err.status).send(err.details || { code: code || 'CENTRAL_ERROR', message: err.message });
       }
       throw err;
     }

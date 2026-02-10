@@ -1,5 +1,5 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { useEffect, useState, useMemo } from 'react';
 import { api } from './api';
 
 const navSections = [
@@ -10,7 +10,7 @@ const navSections = [
     ],
   },
   {
-    title: 'Instance & Central',
+    title: 'Center',
     items: [
       { to: 'instance', label: 'Instance' },
       { to: 'bridge', label: 'Bridge Transfers' },
@@ -72,10 +72,25 @@ const navSections = [
   },
 ];
 
+function getSectionKeyForPath(pathname) {
+  const pathNorm = pathname.replace(/^\/+/, '') || 'dashboard';
+  const section = navSections.find((s) =>
+    s.items.some((it) => pathNorm === it.to || pathNorm.startsWith(it.to + '/')));
+  return section?.title ?? navSections[0].title;
+}
+
 export default function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [ready, setReady] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const initialOpen = useMemo(() => getSectionKeyForPath(location.pathname), []);
+  const [expandedSections, setExpandedSections] = useState(() => new Set([initialOpen]));
+
+  useEffect(() => {
+    const key = getSectionKeyForPath(location.pathname);
+    setExpandedSections((prev) => (prev.has(key) ? prev : new Set([...prev, key])));
+  }, [location.pathname]);
 
   useEffect(() => {
     api.config()
@@ -91,6 +106,15 @@ export default function Layout() {
   };
 
   const closeMenu = () => setMenuOpen(false);
+
+  const toggleSection = (title) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
+  };
 
   if (!ready) return <div className="main">Loading…</div>;
 
@@ -119,19 +143,36 @@ export default function Layout() {
           </div>
         )}
         <nav className="sidebar-nav">
-          {navSections.map((section) => (
-            <div key={section.title} className="nav-section">
-              <div className="nav-section-title">{section.title}</div>
-              <div className="nav-section-items">
-                {section.items.map(({ to, label }) => (
-                  <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'active' : '')} onClick={closeMenu}>{label}</NavLink>
-                ))}
-                {section.title === 'System' && (
-                  <button type="button" onClick={handleLogout} className="nav-logout-btn">Logout</button>
-                )}
+          {navSections.map((section) => {
+            const isExpanded = expandedSections.has(section.title);
+            return (
+              <div key={section.title} className={`nav-section nav-dropdown ${isExpanded ? 'nav-dropdown-open' : ''}`}>
+                <button
+                  type="button"
+                  className="nav-section-title nav-dropdown-trigger"
+                  onClick={() => toggleSection(section.title)}
+                  aria-expanded={isExpanded}
+                  aria-controls={`nav-section-${section.title.replace(/\s+/g, '-')}`}
+                >
+                  <span>{section.title}</span>
+                  <span className="nav-dropdown-chevron" aria-hidden>▼</span>
+                </button>
+                <div
+                  id={`nav-section-${section.title.replace(/\s+/g, '-')}`}
+                  className="nav-section-items nav-dropdown-panel"
+                  role="region"
+                  aria-label={section.title}
+                >
+                  {section.items.map(({ to, label }) => (
+                    <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'active' : '')} onClick={closeMenu}>{label}</NavLink>
+                  ))}
+                  {section.title === 'System' && (
+                    <button type="button" onClick={handleLogout} className="nav-logout-btn">Logout</button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
       </aside>
       <main className="main">

@@ -227,6 +227,19 @@ async function centralPostWithInstanceAuth(baseUrl, instanceId, instanceToken, p
 }
 
 /**
+ * Fetch this instance's trust policy from Central (GET /instances/me/policy). Uses instance auth.
+ * @param {string} baseUrl - AGORA_CENTER_URL
+ * @param {string} instanceId - instance id
+ * @param {string} instanceToken - activation token
+ * @param {string} [requestId]
+ * @returns {Promise<{ trust_level: string, visibility_status: string, policy: object }>}
+ */
+async function getCentralPolicy(baseUrl, instanceId, instanceToken, requestId = null) {
+  const path = '/instances/me/policy';
+  return centralGetWithInstanceAuth(baseUrl, instanceId, instanceToken, path, requestId);
+}
+
+/**
  * Fetch events for this instance from Central (pull). Uses instance auth.
  * @param {string} baseUrl - AGORA_CENTER_URL
  * @param {string} instanceId - instance id
@@ -424,6 +437,7 @@ module.exports = {
   registerCentral,
   activateCentral,
   centralRequest,
+  getCentralPolicy,
   getCentralEvents,
   ackCentralEvent,
   postExportedServices,

@@ -37,7 +37,10 @@ export default function Instance() {
   const [activateForm, setActivateForm] = useState({ instance_id: '', registration_code: '', activation_token: '', official_issuer_id: '' });
   const [activating, setActivating] = useState(false);
 
+  const [syncPolicyLoading, setSyncPolicyLoading] = useState(false);
+
   const hasInstance = instance?.id != null;
+  const central_sync_available = instance?.central_sync_available === true;
   const totalAgoCents = instance?.total_ago_cents ?? 0;
   const totalAgoUnits = (Number(totalAgoCents) / 100).toFixed(2);
 
@@ -346,6 +349,59 @@ export default function Instance() {
                   </tbody>
                 </table>
               </div>
+              {/* Central Compliance & Trust (when connected to Central) */}
+              {(instance?.central_policy || central_sync_available) && (
+                <div className="card">
+                  <h3 style={{ marginTop: 0 }}>Central Compliance &amp; Trust</h3>
+                  {instance?.central_policy ? (
+                    <>
+                      <table>
+                        <tbody>
+                          <tr>
+                            <td><strong>Trust level</strong></td>
+                            <td>{instance.central_policy.trust_level ?? '—'}</td>
+                          </tr>
+                          <tr>
+                            <td><strong>Visibility</strong></td>
+                            <td>{instance.central_policy.visibility_status ?? '—'}</td>
+                          </tr>
+                          <tr>
+                            <td><strong>Policy (limits)</strong></td>
+                            <td>
+                              {instance.central_policy.policy && (
+                                <span className="muted" style={{ fontSize: '0.9rem' }}>
+                                  Paid export: {instance.central_policy.policy.allow_paid_services_export ? 'Yes' : 'No'}
+                                  {' · '}Concurrent: {instance.central_policy.policy.max_concurrent_remote_executions ?? '—'}
+                                  {' · '}Per exec AGO: {instance.central_policy.policy.max_value_per_execution_ago ?? '—'}
+                                  {' · '}Daily AGO: {instance.central_policy.policy.max_daily_execution_value_ago ?? '—'}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td><strong>Last synced</strong></td>
+                            <td>{instance.central_policy.updated_at ? new Date(instance.central_policy.updated_at).toLocaleString() : '—'}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <p className="muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                        Paid AGO services may be suspended for export if trust policy disallows. See Exported Services for any suspended list.
+                      </p>
+                      <button type="button" className="secondary" disabled={syncPolicyLoading} onClick={async () => { setSyncPolicyLoading(true); try { await api.instanceSyncPolicy(); await load(); } catch (e) { setError(e?.message || 'Sync failed'); } finally { setSyncPolicyLoading(false); } }}>
+                        {syncPolicyLoading ? 'Syncing…' : 'Sync now'}
+                      </button>
+                    </>
+                  ) : (
+                    <p className="muted">Policy not yet synced. Click <strong>Sync now</strong> to fetch from Central.</p>
+                  )}
+                  {central_sync_available && !instance?.central_policy && (
+                    <button type="button" className="secondary" disabled={syncPolicyLoading} onClick={async () => { setSyncPolicyLoading(true); try { await api.instanceSyncPolicy(); await load(); } catch (e) { setError(e?.message || 'Sync failed'); } finally { setSyncPolicyLoading(false); } }}>
+                      {syncPolicyLoading ? 'Syncing…' : 'Sync now'}
+                    </button>
+                  )}
+                </div>
+              )}
+
               {baseUrl && (
                 <div className="card">
                   <h3 style={{ marginTop: 0 }}>Public manifest</h3>

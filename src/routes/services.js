@@ -346,6 +346,14 @@ async function servicesRoutes(fastify, opts) {
       response: { 200: { type: 'object' }, 400: { type: 'object' }, 401: { type: 'object' }, 404: { type: 'object' } },
     },
   }, async (request, reply) => {
+    const compliance = require('../lib/compliance');
+    if (!(await compliance.isInstanceCompliant())) {
+      return reply.code(503).send({
+        ok: false,
+        code: 'PROVIDER_NON_COMPLIANT',
+        message: 'Instance is not compliant; cannot accept execution from Central',
+      });
+    }
     const serviceRef = request.params.service_ref;
     const { payload } = request.body || {};
     const service = await servicesDb.getByIdOrSlug(serviceRef);

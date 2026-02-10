@@ -133,7 +133,7 @@ AGO is a **reserved coin** controlled by the Central (official issuer). Open-sou
 - **Local transfers:** `POST /wallet/AGO/transfer` **remains allowed** within the same instance.
 - **AGO inbound (issuer credit):** `POST /issuer/credit` for `coin=AGO` is **allowed only when** the instance is **compliant** (status = `registered`), the issuer is the Central or the instance’s official issuer, and `external_ref` is provided. Otherwise 403 `INSTANCE_NOT_COMPLIANT`.
 - **AGO outbound:** `POST /bridge/transfer` and `POST /bridge/cashout` for AGO require a **compliant** instance. Otherwise 403 `INSTANCE_NOT_COMPLIANT`. Settlements are performed via admin endpoints (Central not implemented in core).
-- **Exported services:** Services with `visibility=exported` are listed at `GET /public/services` only when the instance is compliant. When the instance becomes non-compliant (flagged/blocked/unregistered), all exported services are **automatically suspended**; they do not auto-resume when the instance returns to registered — staff must use **Resume export** per service.
+- **Exported services:** Services with `visibility=exported` are listed at `GET /public/services` only when the instance is compliant. When the instance becomes non-compliant (flagged/blocked/unregistered), all exported services are **automatically suspended**; they do not auto-resume when the instance returns to registered — staff must use **Resume export** per service. When connected to Central, the instance’s **trust policy** (from `GET /instances/me/policy`) is cached locally; if the policy disallows paid AGO export, only free services are sent to the Central directory.
 
 ### Compliance state
 
@@ -143,6 +143,7 @@ AGO is a **reserved coin** controlled by the Central (official issuer). Open-sou
 ### Public audit and manifest
 
 - **`GET /.well-known/agora.json`** — Public instance manifest: protocol version, `instance_id`, `base_url`, `instance_status`, `export_services_enabled`, reserved-coin policy summary, `docs` (swagger_ui, swagger_spec, doc_ia), endpoint paths, and optionally **`central_connection_url`** (when `AGORA_CENTER_URL` is set) — the URL of the AGORA-CENTER connection endpoint.
+- **Central Trust Boundary:** When connected to Central, the instance periodically fetches its trust policy (`GET /instances/me/policy`) and caches it in `instance_central_policy`. `GET /instance/status` (with instance or admin auth) includes `trust_level`, `visibility_status`, and `central_policy` when available. Staff UI **Instance** shows a “Central Compliance & Trust” section and a “Sync now” button. Remote execution may be rejected by Central with trust error codes (`TRUST_PROVIDER_DISABLED`, `TRUST_LIMIT_*`, etc.); these are returned to the caller and recorded in the audit log.
 - **`GET /public/services`** — List of exported, active services (empty with a warning when not compliant).
 
 ### Staff UI

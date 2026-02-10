@@ -779,7 +779,7 @@ async function staffRoutes(fastify, opts) {
   });
 
   fastify.get('/api/instance', {
-    schema: { tags: ['Staff'], description: 'Get current instance (compliance, status, AGO balance)' },
+    schema: { tags: ['Staff'], description: 'Get current instance (compliance, status, AGO balance, Central policy)' },
   }, async (_request, reply) => {
     const compliance = require('../lib/compliance');
     const inst = await compliance.getCurrentInstance();
@@ -793,6 +793,12 @@ async function staffRoutes(fastify, opts) {
       );
       total_ago_cents = sumRes.rows[0] ? Number(sumRes.rows[0].total) : 0;
     } catch (_) {}
+    let central_policy = null;
+    if (inst?.id) {
+      const instanceCentralPolicyDb = require('../db/instanceCentralPolicy');
+      central_policy = await instanceCentralPolicyDb.get(inst.id);
+    }
+    const central_sync_available = !!(config.agoraCenterUrl && config.instanceId && config.instanceToken);
     const response = {
       ok: true,
       data: inst ? {
@@ -800,9 +806,26 @@ async function staffRoutes(fastify, opts) {
         compliant: inst.status === 'registered',
         export_services_enabled: exportEnabled,
         total_ago_cents,
-      } : { total_ago_cents },
+        central_policy,
+        central_sync_available,
+      } : { total_ago_cents, central_policy, central_sync_available },
     };
     return reply.send(response);
+  });
+
+  fastify.post('/api/instance/sync-policy', {
+    schema: { tags: ['Staff'], description: 'Trigger Central policy sync now (GET /instances/me/policy)' },
+  }, async (request, reply) => {
+    if (!config.agoraCenterUrl || !config.instanceId || !config.instanceToken) {
+      return reply.code(400).send({
+        ok: false,
+        code: 'CENTRAL_NOT_CONFIGURED',
+        message: 'AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN are required for policy sync.',
+      });
+    }
+    const centralPolicySync = require('../jobs/centralPolicySync');
+    await centralPolicySync.syncOnce();
+    return reply.send({ ok: true, message: 'Policy sync triggered' });
   });
 
   fastify.patch('/api/instance/:id/status', {
@@ -960,9 +983,11 @@ async function staffRoutes(fastify, opts) {
   });
 
   fastify.get('/api/dashboard', {
-    schema: { tags: ['Staff'], description: 'Operational dashboard: instance summary, bridge pending, executions last 24h, error rate, paused services, recent ledger, recent audit' },
+    schema: { tags: ['Staff'], description: 'Operational dashboard: instance summary, Central metrics, bridge pending, executions last 24h, error rate, paused services, recent ledger, recent audit' },
   }, async (_request, reply) => {
     const compliance = require('../lib/compliance');
+    const instanceCentralPolicyDb = require('../db/instanceCentralPolicy');
+    const reservedCoin = config.reservedCoin || 'AGO';
     const [executions24hRes, errorRateRes, pausedRes, recentLedgerRes, recentAuditRes, inst, exportEnabled, bridgePending] = await Promise.all([
       query(`SELECT status, COUNT(*)::int AS cnt FROM executions WHERE created_at >= NOW() - INTERVAL '24 hours' GROUP BY status`, []),
       query(`SELECT COUNT(*) FILTER (WHERE status = 'failed')::int AS failed, COUNT(*)::int AS total FROM executions WHERE created_at >= NOW() - INTERVAL '24 hours'`, []),
@@ -972,6 +997,10 @@ async function staffRoutes(fastify, opts) {
       compliance.getCurrentInstance(),
       staffSettingsDb.get('export_services_enabled'),
       bridgeDb.getPendingSummary(),
+    ]);
+    const [agoSumRes, centralPolicyResolved] = await Promise.all([
+      query('SELECT COALESCE(SUM(balance_cents), 0)::bigint AS total FROM wallets WHERE coin = $1', [reservedCoin]),
+      (inst?.id ? instanceCentralPolicyDb.get(inst.id).catch(() => null) : Promise.resolve(null)),
     ]);
     const byStatus = {};
     (executions24hRes.rows || []).forEach((r) => { byStatus[r.status] = r.cnt; });
@@ -1008,6 +1037,12 @@ async function staffRoutes(fastify, opts) {
     const base_url = (config.agoraPublicUrl || '').replace(/\/$/, '') || `http://localhost:${config.port || 3000}`;
     const agora_center_url = config.agoraCenterUrl || null;
     const central_sync_available = !!(agora_center_url && config.instanceId && config.instanceToken);
+    const central_ago_cents = (agoSumRes?.rows?.[0] != null) ? Number(agoSumRes.rows[0].total) : 0;
+    const central_policy_summary = (centralPolicyResolved && typeof centralPolicyResolved === 'object') ? {
+      trust_level: centralPolicyResolved.trust_level || 'unverified',
+      visibility_status: centralPolicyResolved.visibility_status || 'unlisted',
+      updated_at: centralPolicyResolved.updated_at,
+    } : null;
     const response = {
       ok: true,
       data: {
@@ -1015,6 +1050,8 @@ async function staffRoutes(fastify, opts) {
         base_url,
         agora_center_url,
         central_sync_available,
+        central_ago_cents,
+        central_policy_summary,
         bridge_pending_summary: { count: bridgePending.count, total_cents: bridgePending.total_cents },
         executions_last_24h: byStatus,
         executions_total_24h: total,

@@ -86,6 +86,10 @@ export default function Dashboard() {
   const manifestUrl = baseUrl ? `${baseUrl}/.well-known/agora.json` : '';
   const docsUrl = baseUrl ? `${baseUrl}/docs` : '';
   const centralSyncAvailable = data?.central_sync_available ?? false;
+  const centralUrl = data?.agora_center_url ?? null;
+  const centralAgoCents = data?.central_ago_cents ?? 0;
+  const centralAgoUnits = (Number(centralAgoCents) / 100).toFixed(2);
+  const centralPolicy = data?.central_policy_summary ?? null;
 
   const handleSyncAgo = () => {
     setSyncAgoLoading(true);
@@ -106,6 +110,103 @@ export default function Dashboard() {
   return (
     <>
       <PageHeader title="Dashboard" onReload={load} loading={loading} />
+
+      <div className="card instance-dashboard-card dashboard-central-card">
+        <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span aria-hidden>◇</span> Central
+        </h3>
+        {!centralUrl ? (
+          <div className="instance-empty">
+            <p className="muted">Central não configurado.</p>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              Defina <code>AGORA_CENTER_URL</code> (e <code>INSTANCE_ID</code> / <code>INSTANCE_TOKEN</code>) no <code>.env</code> para conectar à Central.
+            </p>
+            <Link to="/instance" style={{ display: 'inline-block', marginTop: '0.5rem' }}>Configurar em Instance →</Link>
+          </div>
+        ) : (
+          <div className="instance-grid dashboard-central-grid">
+            <div className="instance-block">
+              <label>URL da Central</label>
+              <div className="instance-id-row">
+                <code className="instance-id" title={centralUrl}>{centralUrl}</code>
+                <button
+                  type="button"
+                  className="secondary"
+                  style={{ flexShrink: 0 }}
+                  onClick={() => copyToClipboard(centralUrl, setCopyFeedback)}
+                  title="Copiar"
+                >
+                  Copiar
+                </button>
+                {copyFeedback && <span className="instance-copy-feedback">{copyFeedback}</span>}
+              </div>
+            </div>
+            <div className="instance-block">
+              <label>Saldo AGO (instância)</label>
+              <div className="instance-sync-value instance-ago-balance">
+                <strong>{centralAgoUnits}</strong> AGO
+              </div>
+            </div>
+            {centralPolicy && (
+              <>
+                <div className="instance-block">
+                  <label>Trust level (Central)</label>
+                  <span className={`instance-badge instance-badge-${centralPolicy.trust_level === 'verified' ? 'ok' : centralPolicy.trust_level === 'unverified' ? 'muted' : 'pending'}`}>
+                    {centralPolicy.trust_level ?? '—'}
+                  </span>
+                </div>
+                <div className="instance-block">
+                  <label>Visibility (Central)</label>
+                  <span>{centralPolicy.visibility_status ?? '—'}</span>
+                </div>
+                <div className="instance-block">
+                  <label>Policy atualizada em</label>
+                  <span>{centralPolicy.updated_at ? new Date(centralPolicy.updated_at).toLocaleString() : '—'}</span>
+                </div>
+              </>
+            )}
+            <div className="instance-sync-block">
+              <label>Bridge pendente (outbound)</label>
+              <div className="instance-sync-value">
+                <strong>{bridgePending.count}</strong> transferência(s) · <strong>{(Number(bridgePending.total_cents) / 100).toFixed(2)}</strong> AGO
+              </div>
+              {bridgePending.count > 0 && (
+                <Link to="/bridge" className="secondary" style={{ display: 'inline-block', marginTop: '0.5rem' }}>Ver Bridge →</Link>
+              )}
+            </div>
+            {centralSyncAvailable && (
+              <div className="instance-sync-block">
+                <label>Sincronização AGO (inbound)</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={syncAgoLoading}
+                    onClick={handleSyncAgo}
+                  >
+                    {syncAgoLoading ? 'Sincronizando…' : 'Forçar sincronização'}
+                  </button>
+                  {syncAgoFeedback && (
+                    <span className={syncAgoFeedback.startsWith('Sincronização') ? 'success' : 'error'} style={{ fontSize: '0.9rem' }}>
+                      {syncAgoFeedback}
+                    </span>
+                  )}
+                </div>
+                <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>
+                  Busca créditos INSTANCE_CREDIT/CREDIT_INSTANCE na Central e credita agentes.
+                </p>
+              </div>
+            )}
+            <div className="instance-urls">
+              <label>Ações</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                <Link to="/instance">Instance</Link>
+                <Link to="/bridge">Bridge</Link>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="card instance-dashboard-card">
         <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -161,38 +262,6 @@ export default function Dashboard() {
               <label>Last seen</label>
               <span>{instanceSummary.last_seen_at ? new Date(instanceSummary.last_seen_at).toLocaleString() : '—'}</span>
             </div>
-            <div className="instance-sync-block">
-              <label>Valor para sincronizar (AGO outbound pendente)</label>
-              <div className="instance-sync-value">
-                <strong>{bridgePending.count}</strong> transfer(s) · <strong>{(Number(bridgePending.total_cents) / 100).toFixed(2)}</strong> units
-              </div>
-              {bridgePending.count > 0 && (
-                <Link to="/bridge" className="secondary" style={{ display: 'inline-block', marginTop: '0.5rem' }}>View Bridge Transfers →</Link>
-              )}
-            </div>
-            {centralSyncAvailable && (
-              <div className="instance-sync-block">
-                <label>AGO da Central (inbound)</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={syncAgoLoading}
-                    onClick={handleSyncAgo}
-                  >
-                    {syncAgoLoading ? 'Sincronizando…' : 'Forçar sincronização'}
-                  </button>
-                  {syncAgoFeedback && (
-                    <span className={syncAgoFeedback.startsWith('Sincronização') ? 'success' : 'error'} style={{ fontSize: '0.9rem' }}>
-                      {syncAgoFeedback}
-                    </span>
-                  )}
-                </div>
-                <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>
-                  Busca créditos INSTANCE_CREDIT/CREDIT_INSTANCE na Central e credita agentes.
-                </p>
-              </div>
-            )}
             <div className="instance-urls">
               <label>Quick links</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
@@ -207,7 +276,6 @@ export default function Dashboard() {
                   </button>
                 )}
                 <Link to="/instance">Instance</Link>
-                <Link to="/bridge">Bridge</Link>
               </div>
             </div>
           </div>

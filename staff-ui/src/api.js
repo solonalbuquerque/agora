@@ -111,6 +111,7 @@ export const api = {
   mint: (body) => request('/staff/mint', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   setup2fa: () => request('/staff/2fa/setup', { method: 'POST' }),
   instance: () => request('/staff/api/instance'),
+  instanceSyncPolicy: () => request('/staff/api/instance/sync-policy', { method: 'POST' }),
   instanceUpdateStatus: (id, status) => request(`/staff/api/instance/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }),
   /** centerToken: Bearer JWT from Center (POST /human/login). Required when AGORA_CENTER_URL is set. */
   instanceRegister: (body, centerToken = null) => {
