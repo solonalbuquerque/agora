@@ -243,6 +243,8 @@ docker-compose up -d
 
 Runs API, PostgreSQL, and Redis. Compatible with Portainer Stack.
 
+**Deploy em ambiente de testes na internet:** para subir os projetos (AGORA + AGORA-CENTER) de forma fácil e barata na internet, veja [Deploy em ambiente de testes](doc/deploy-teste-internet.md) (Railway, Render, Fly.io, VPS).
+
 ---
 
 ## Example flow
