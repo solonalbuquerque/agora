@@ -102,6 +102,15 @@ export default function ServiceDetail() {
                     }}>
                       {service.status}
                     </span>
+                    {service.status !== 'removed' && (
+                      <span style={{ marginLeft: '0.5rem' }}>
+                        {service.status === 'active' ? (
+                          <button type="button" onClick={async () => { try { await api.servicePause(id); load(); } catch (e) { alert(e?.message || 'Error'); } }}>Pause</button>
+                        ) : service.status === 'paused' ? (
+                          <button type="button" className="primary" onClick={async () => { try { await api.serviceResume(id); load(); } catch (e) { alert(e?.message || 'Error'); } }}>Resume</button>
+                        ) : null}
+                      </span>
+                    )}
                   </td>
                 </tr>
                 <tr>

@@ -14,6 +14,16 @@ export default function AgentDetail() {
   const [transactions, setTransactions] = useState({ rows: [], total: 0 });
   const [executions, setExecutions] = useState({ rows: [], total: 0 });
   const [trustLevels, setTrustLevels] = useState([]);
+  const [creatingService, setCreatingService] = useState(false);
+  const [coins, setCoins] = useState([]);
+  const [serviceForm, setServiceForm] = useState({
+    name: '',
+    description: '',
+    webhook_url: '',
+    price_cents: 0,
+    coin: 'AGOTEST',
+    export: false,
+  });
 
   const load = () => {
     setLoadError('');
@@ -64,6 +74,12 @@ export default function AgentDetail() {
     api.trustLevels().then((r) => setTrustLevels(r?.data?.rows || [])).catch(() => setTrustLevels([]));
   }, [id]);
 
+  useEffect(() => {
+    if (creatingService) {
+      api.coins().then((r) => setCoins(r?.data?.rows || [])).catch(() => setCoins([]));
+    }
+  }, [creatingService]);
+
   const handleStatus = async (status) => {
     try {
       await api.updateAgentStatus(id, status);
@@ -91,6 +107,30 @@ export default function AgentDetail() {
       load();
     } catch (err) {
       alert(err?.message || 'Error');
+    }
+  };
+
+  const handleCreateService = async (e) => {
+    e.preventDefault();
+    if (!serviceForm.name?.trim() || !serviceForm.webhook_url?.trim()) {
+      alert('Name and webhook URL are required');
+      return;
+    }
+    try {
+      await api.createService({
+        owner_agent_id: id,
+        name: serviceForm.name.trim(),
+        description: serviceForm.description?.trim() || '',
+        webhook_url: serviceForm.webhook_url.trim(),
+        price_cents: Number(serviceForm.price_cents) || 0,
+        coin: serviceForm.coin || 'AGOTEST',
+        export: !!serviceForm.export,
+      });
+      setCreatingService(false);
+      setServiceForm({ name: '', description: '', webhook_url: '', price_cents: 0, coin: 'AGOTEST', export: false });
+      loadRelated();
+    } catch (err) {
+      alert(err?.message || 'Error creating service');
     }
   };
 
@@ -271,12 +311,85 @@ export default function AgentDetail() {
 
           {/* Services */}
           <div className="card" style={{ marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
               <h3 style={{ margin: 0, color: '#a78bfa' }}>Services ({services.total})</h3>
-              <Link to={`/services?owner_agent_id=${encodeURIComponent(id)}`} style={{ color: '#a78bfa', fontSize: '0.875rem' }}>
-                View all &rarr;
-              </Link>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                {!creatingService ? (
+                  <button type="button" className="primary" onClick={() => setCreatingService(true)}>Create service</button>
+                ) : null}
+                <Link to={`/services?owner_agent_id=${encodeURIComponent(id)}`} style={{ color: '#a78bfa', fontSize: '0.875rem' }}>
+                  View all &rarr;
+                </Link>
+              </div>
             </div>
+            {creatingService && (
+              <form onSubmit={handleCreateService} style={{ marginBottom: '1rem', padding: '1rem', background: '#18181b', borderRadius: '4px' }}>
+                <div className="form-row">
+                  <label>Name</label>
+                  <input
+                    value={serviceForm.name}
+                    onChange={(e) => setServiceForm((d) => ({ ...d, name: e.target.value }))}
+                    placeholder="Service name"
+                    required
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Webhook URL</label>
+                  <input
+                    type="url"
+                    value={serviceForm.webhook_url}
+                    onChange={(e) => setServiceForm((d) => ({ ...d, webhook_url: e.target.value }))}
+                    placeholder="https://..."
+                    required
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Description</label>
+                  <input
+                    value={serviceForm.description}
+                    onChange={(e) => setServiceForm((d) => ({ ...d, description: e.target.value }))}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <div className="form-row">
+                    <label>Price (cents)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={serviceForm.price_cents}
+                      onChange={(e) => setServiceForm((d) => ({ ...d, price_cents: e.target.value }))}
+                    />
+                  </div>
+                  <div className="form-row">
+                    <label>Coin</label>
+                    <select
+                      value={serviceForm.coin}
+                      onChange={(e) => setServiceForm((d) => ({ ...d, coin: e.target.value }))}
+                    >
+                      {coins.map((c) => (
+                        <option key={c.coin} value={c.coin}>{c.coin}</option>
+                      ))}
+                      {coins.length === 0 && <option value="AGOTEST">AGOTEST</option>}
+                    </select>
+                  </div>
+                  <div className="form-row" style={{ alignItems: 'center', paddingTop: '1.5rem' }}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={serviceForm.export}
+                        onChange={(e) => setServiceForm((d) => ({ ...d, export: e.target.checked }))}
+                      />
+                      {' '}Export
+                    </label>
+                  </div>
+                </div>
+                <div style={{ marginTop: '0.75rem' }}>
+                  <button type="submit" className="primary">Create</button>
+                  <button type="button" onClick={() => { setCreatingService(false); setServiceForm({ name: '', description: '', webhook_url: '', price_cents: 0, coin: 'AGOTEST', export: false }); }} style={{ marginLeft: '0.5rem' }}>Cancel</button>
+                </div>
+              </form>
+            )}
             {services.rows.length === 0 ? (
               <p className="muted">No services owned by this agent.</p>
             ) : (

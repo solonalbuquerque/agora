@@ -13,6 +13,8 @@ export default function Humans() {
   const [loadError, setLoadError] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
+  const [creating, setCreating] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
   const limit = 20;
 
   const load = () => {
@@ -40,6 +42,19 @@ export default function Humans() {
 
   useEffect(() => { load(); }, [page, statusFilter, searchQuery]);
 
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!newEmail.trim()) return;
+    try {
+      await api.createHuman(newEmail.trim());
+      setNewEmail('');
+      setCreating(false);
+      load();
+    } catch (err) {
+      alert(err?.message || 'Error creating human');
+    }
+  };
+
   const handleStatus = async (id, status) => {
     try {
       await api.updateHumanStatus(id, status);
@@ -65,6 +80,25 @@ export default function Humans() {
   return (
     <>
       <PageHeader title="Humans" onReload={load} loading={loading} />
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        {!creating ? (
+          <button type="button" className="primary" onClick={() => setCreating(true)}>New human</button>
+        ) : (
+          <form onSubmit={handleCreate}>
+            <div className="form-row">
+              <label>Email</label>
+              <input
+                type="email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                placeholder="email@example.com"
+              />
+            </div>
+            <button type="submit" className="primary">Create</button>
+            <button type="button" onClick={() => { setCreating(false); setNewEmail(''); }} style={{ marginLeft: '0.5rem' }}>Cancel</button>
+          </form>
+        )}
+      </div>
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div>

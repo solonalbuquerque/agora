@@ -14,6 +14,18 @@ export default function Services() {
   const [statusFilter, setStatusFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
   const [ownerFilter, setOwnerFilter] = useState(searchParams.get('owner_agent_id') || '');
+  const [creating, setCreating] = useState(false);
+  const [agents, setAgents] = useState([]);
+  const [coins, setCoins] = useState([]);
+  const [formData, setFormData] = useState({
+    owner_agent_id: '',
+    name: '',
+    description: '',
+    webhook_url: '',
+    price_cents: 0,
+    coin: 'AGOTEST',
+    export: false,
+  });
   const limit = 20;
 
   const load = () => {
@@ -42,6 +54,13 @@ export default function Services() {
 
   useEffect(() => { load(); }, [page, statusFilter, searchQuery]);
 
+  useEffect(() => {
+    if (creating) {
+      api.agents({ limit: 200 }).then((r) => setAgents(r?.data?.rows || [])).catch(() => setAgents([]));
+      api.coins().then((r) => setCoins(r?.data?.rows || [])).catch(() => setCoins([]));
+    }
+  }, [creating]);
+
   const handleSearch = (q) => {
     setPage(0);
     setSearchQuery(q);
@@ -59,12 +78,121 @@ export default function Services() {
     setSearchParams(params);
   };
 
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!formData.owner_agent_id || !formData.name?.trim() || !formData.webhook_url?.trim()) {
+      alert('Agent, name and webhook URL are required');
+      return;
+    }
+    try {
+      await api.createService({
+        owner_agent_id: formData.owner_agent_id,
+        name: formData.name.trim(),
+        description: formData.description?.trim() || '',
+        webhook_url: formData.webhook_url.trim(),
+        price_cents: Number(formData.price_cents) || 0,
+        coin: formData.coin || 'AGOTEST',
+        export: !!formData.export,
+      });
+      setCreating(false);
+      setFormData({ owner_agent_id: '', name: '', description: '', webhook_url: '', price_cents: 0, coin: 'AGOTEST', export: false });
+      load();
+    } catch (err) {
+      alert(err?.message || 'Error creating service');
+    }
+  };
+
   const rows = Array.isArray(data?.rows) ? data.rows : [];
   const total = Number(data?.total) || 0;
 
   return (
     <>
       <PageHeader title="Services" onReload={load} loading={loading} />
+      <div className="card" style={{ marginBottom: '1rem' }}>
+        {!creating ? (
+          <button type="button" className="primary" onClick={() => setCreating(true)}>New service</button>
+        ) : (
+          <form onSubmit={handleCreate}>
+            <div className="form-row">
+              <label>Agent (owner)</label>
+              <select
+                value={formData.owner_agent_id}
+                onChange={(e) => setFormData((d) => ({ ...d, owner_agent_id: e.target.value }))}
+                required
+              >
+                <option value="">Select agent</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-row">
+              <label>Name</label>
+              <input
+                value={formData.name}
+                onChange={(e) => setFormData((d) => ({ ...d, name: e.target.value }))}
+                placeholder="Service name"
+                required
+              />
+            </div>
+            <div className="form-row">
+              <label>Webhook URL</label>
+              <input
+                type="url"
+                value={formData.webhook_url}
+                onChange={(e) => setFormData((d) => ({ ...d, webhook_url: e.target.value }))}
+                placeholder="https://..."
+                required
+              />
+            </div>
+            <div className="form-row">
+              <label>Description</label>
+              <input
+                value={formData.description}
+                onChange={(e) => setFormData((d) => ({ ...d, description: e.target.value }))}
+                placeholder="Optional"
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <div className="form-row">
+                <label>Price (cents)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.price_cents}
+                  onChange={(e) => setFormData((d) => ({ ...d, price_cents: e.target.value }))}
+                />
+              </div>
+              <div className="form-row">
+                <label>Coin</label>
+                <select
+                  value={formData.coin}
+                  onChange={(e) => setFormData((d) => ({ ...d, coin: e.target.value }))}
+                >
+                  {coins.map((c) => (
+                    <option key={c.coin} value={c.coin}>{c.coin}</option>
+                  ))}
+                  {coins.length === 0 && <option value="AGOTEST">AGOTEST</option>}
+                </select>
+              </div>
+              <div className="form-row" style={{ alignItems: 'center', paddingTop: '1.5rem' }}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={formData.export}
+                    onChange={(e) => setFormData((d) => ({ ...d, export: e.target.checked }))}
+                  />
+                  {' '}Export
+                </label>
+              </div>
+            </div>
+            <div style={{ marginTop: '1rem' }}>
+              <button type="submit" className="primary">Create</button>
+              <button type="button" onClick={() => { setCreating(false); setFormData({ owner_agent_id: '', name: '', description: '', webhook_url: '', price_cents: 0, coin: 'AGOTEST', export: false }); }} style={{ marginLeft: '0.5rem' }}>Cancel</button>
+            </div>
+          </form>
+        )}
+      </div>
       <div className="card" style={{ marginBottom: '1rem' }}>
         {ownerFilter && (
           <div style={{ marginBottom: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>

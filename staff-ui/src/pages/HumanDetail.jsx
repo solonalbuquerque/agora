@@ -11,6 +11,10 @@ export default function HumanDetail() {
   const [loadError, setLoadError] = useState('');
   const [agents, setAgents] = useState([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
+  const [linkingAgent, setLinkingAgent] = useState(false);
+  const [allAgents, setAllAgents] = useState([]);
+  const [linkAgentId, setLinkAgentId] = useState('');
+  const [linkRole, setLinkRole] = useState('owner');
 
   const load = () => {
     setLoadError('');
@@ -49,6 +53,35 @@ export default function HumanDetail() {
     load();
     loadAgents();
   }, [id]);
+
+  useEffect(() => {
+    if (linkingAgent) {
+      api.agents({ limit: 200 }).then((r) => setAllAgents(r?.data?.rows || [])).catch(() => setAllAgents([]));
+    }
+  }, [linkingAgent]);
+
+  const handleLinkAgent = async (e) => {
+    e.preventDefault();
+    if (!linkAgentId) return;
+    try {
+      await api.linkHumanAgent(id, linkAgentId, linkRole);
+      setLinkAgentId('');
+      setLinkingAgent(false);
+      loadAgents();
+    } catch (err) {
+      alert(err?.message || 'Error linking agent');
+    }
+  };
+
+  const handleUnlinkAgent = async (agentId) => {
+    if (!confirm('Unlink this agent?')) return;
+    try {
+      await api.unlinkHumanAgent(id, agentId);
+      loadAgents();
+    } catch (err) {
+      alert(err?.message || 'Error unlinking');
+    }
+  };
 
   const handleStatus = async (status) => {
     try {
@@ -134,7 +167,32 @@ export default function HumanDetail() {
           </div>
 
           <div className="card">
-            <h3 style={{ marginTop: 0, marginBottom: '1rem', color: '#a78bfa' }}>Linked Agents</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ margin: 0, color: '#a78bfa' }}>Linked agents</h3>
+              {!linkingAgent ? (
+                <button type="button" className="primary" onClick={() => setLinkingAgent(true)}>Link agent</button>
+              ) : (
+                <form onSubmit={handleLinkAgent} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <select
+                    value={linkAgentId}
+                    onChange={(e) => setLinkAgentId(e.target.value)}
+                    required
+                    style={{ minWidth: '200px' }}
+                  >
+                    <option value="">Select agent</option>
+                    {allAgents.filter((a) => !agents.some((la) => la.agent_id === a.id)).map((a) => (
+                      <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                    ))}
+                  </select>
+                  <select value={linkRole} onChange={(e) => setLinkRole(e.target.value)}>
+                    <option value="owner">owner</option>
+                    <option value="viewer">viewer</option>
+                  </select>
+                  <button type="submit" className="primary">Link</button>
+                  <button type="button" onClick={() => { setLinkingAgent(false); setLinkAgentId(''); }}>Cancel</button>
+                </form>
+              )}
+            </div>
             {loadingAgents ? (
               <p className="muted">Loading agents…</p>
             ) : agents.length === 0 ? (
@@ -145,7 +203,8 @@ export default function HumanDetail() {
                   <tr>
                     <th>Agent ID</th>
                     <th>Role</th>
-                    <th>Linked At</th>
+                    <th>Linked at</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -158,6 +217,9 @@ export default function HumanDetail() {
                       </td>
                       <td>{a.role}</td>
                       <td>{a.created_at ? new Date(a.created_at).toLocaleString() : '-'}</td>
+                      <td>
+                        <button type="button" onClick={() => handleUnlinkAgent(a.agent_id)} style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}>Unlink</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

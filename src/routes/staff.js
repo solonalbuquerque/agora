@@ -496,6 +496,33 @@ async function staffRoutes(fastify, opts) {
     }
   });
 
+  fastify.post('/api/humans', {
+    schema: {
+      tags: ['Staff'],
+      description: 'Create a human (admin). Email required.',
+      body: {
+        type: 'object',
+        required: ['email'],
+        properties: { email: { type: 'string' } },
+      },
+      response: { 201: { type: 'object', properties: { ok: { type: 'boolean' }, data: { type: 'object' } } } },
+    },
+  }, async (request, reply) => {
+    const { email } = request.body || {};
+    const emailNorm = (email || '').toString().toLowerCase().trim();
+    if (!emailNorm) return badRequest(reply, 'email is required');
+    const human = await humansDb.createHuman(emailNorm);
+    await recordAuditEvent({
+      event_type: 'STAFF_HUMAN_CREATE',
+      actor_type: 'admin',
+      target_type: 'human',
+      target_id: human.id,
+      metadata: { email: human.email },
+      request_id: request.requestId,
+    });
+    return created(reply, human);
+  });
+
   fastify.get('/api/humans/:id', {
     schema: { tags: ['Staff'], params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object' } } },
   }, async (request, reply) => {
@@ -537,6 +564,75 @@ async function staffRoutes(fastify, opts) {
   }, async (request, reply) => {
     const agents = await humansDb.getAgentsByHumanId(request.params.id);
     return reply.send({ ok: true, data: { rows: agents } });
+  });
+
+  fastify.post('/api/humans/:id/agents', {
+    schema: {
+      tags: ['Staff'],
+      description: 'Link an agent to a human.',
+      params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } },
+      body: {
+        type: 'object',
+        required: ['agent_id'],
+        properties: {
+          agent_id: { type: 'string', format: 'uuid' },
+          role: { type: 'string', enum: ['owner', 'viewer'], default: 'owner' },
+        },
+      },
+      response: { 200: { type: 'object', properties: { ok: { type: 'boolean' } } } },
+    },
+  }, async (request, reply) => {
+    const humanId = request.params.id;
+    const { agent_id: agentId, role = 'owner' } = request.body || {};
+    if (!agentId) return badRequest(reply, 'agent_id is required');
+    const human = await humansDb.getHumanById(humanId);
+    if (!human) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Human not found' });
+    const agent = await agentsDb.getById(agentId);
+    if (!agent) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Agent not found' });
+    const roleVal = role === 'viewer' ? 'viewer' : 'owner';
+    await humansDb.linkAgent(humanId, agentId, roleVal);
+    await recordAuditEvent({
+      event_type: 'STAFF_HUMAN_AGENT_LINK',
+      actor_type: 'admin',
+      target_type: 'human',
+      target_id: humanId,
+      metadata: { agent_id: agentId, role: roleVal },
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true });
+  });
+
+  fastify.delete('/api/humans/:id/agents/:agentId', {
+    schema: {
+      tags: ['Staff'],
+      description: 'Unlink an agent from a human.',
+      params: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          agentId: { type: 'string', format: 'uuid' },
+        },
+      },
+      response: { 200: { type: 'object', properties: { ok: { type: 'boolean' } } } },
+    },
+  }, async (request, reply) => {
+    const { id: humanId, agentId } = request.params;
+    const human = await humansDb.getHumanById(humanId);
+    if (!human) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Human not found' });
+    const { query } = require('../db/index');
+    const res = await query('DELETE FROM human_agents WHERE human_id = $1 AND agent_id = $2 RETURNING 1', [humanId, agentId]);
+    if (res.rows.length === 0) {
+      return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Agent not linked to this human' });
+    }
+    await recordAuditEvent({
+      event_type: 'STAFF_HUMAN_AGENT_UNLINK',
+      actor_type: 'admin',
+      target_type: 'human',
+      target_id: humanId,
+      metadata: { agent_id: agentId },
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true });
   });
 
   fastify.get('/api/wallets', {
@@ -617,6 +713,114 @@ async function staffRoutes(fastify, opts) {
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
     reply.raw.end(JSON.stringify(response));
     return;
+  });
+
+  fastify.post('/api/services', {
+    schema: {
+      tags: ['Staff'],
+      description: 'Create a service for a given agent (admin bypass).',
+      body: {
+        type: 'object',
+        required: ['owner_agent_id', 'name', 'webhook_url'],
+        properties: {
+          owner_agent_id: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+          description: { type: 'string' },
+          webhook_url: { type: 'string', format: 'uri' },
+          input_schema: { type: 'object' },
+          output_schema: { type: 'object' },
+          price_cents: { type: 'integer', minimum: 0 },
+          coin: { type: 'string', maxLength: 16 },
+          export: { type: 'boolean', default: false },
+          slug: { type: ['string', 'null'] },
+        },
+      },
+      response: { 201: { type: 'object', properties: { ok: { type: 'boolean' }, data: { type: 'object' } } } },
+    },
+  }, async (request, reply) => {
+    const body = request.body || {};
+    const { owner_agent_id: ownerAgentId, name, webhook_url: webhookUrl } = body;
+    if (!ownerAgentId || !name || !webhookUrl) {
+      return badRequest(reply, 'owner_agent_id, name and webhook_url are required');
+    }
+    const agent = await agentsDb.getById(ownerAgentId);
+    if (!agent) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Agent not found' });
+    if (body.slug !== undefined && body.slug !== null && !servicesDb.isValidSlug(body.slug)) {
+      return badRequest(reply, 'Invalid slug: use only lowercase letters, numbers and hyphens; max 64 characters.');
+    }
+    if (!config.allowInsecureWebhook) {
+      const { validateWebhookUrl } = require('../lib/security/webhookValidation');
+      const validation = await validateWebhookUrl(webhookUrl);
+      if (!validation.ok) {
+        return badRequest(reply, validation.reason || 'Invalid webhook URL');
+      }
+    }
+    const priceCents = body.price_cents ?? 0;
+    const wantExport = body.export === true;
+    const compliance = require('../lib/compliance');
+    if (wantExport) {
+      const compliant = await compliance.isInstanceCompliant();
+      if (!compliant) {
+        return reply.code(403).send({ ok: false, code: 'INSTANCE_NOT_COMPLIANT', message: 'Instance must be compliant to export services' });
+      }
+    }
+    const service = await servicesDb.create({
+      owner_agent_id: ownerAgentId,
+      name: body.name,
+      description: body.description,
+      webhook_url: webhookUrl,
+      input_schema: body.input_schema,
+      output_schema: body.output_schema,
+      price_cents: priceCents,
+      coin: body.coin || config.defaultCoin || 'AGOTEST',
+      export: wantExport,
+      slug: body.slug,
+    });
+    await recordAuditEvent({
+      event_type: 'STAFF_SERVICE_CREATE',
+      actor_type: 'admin',
+      target_type: 'service',
+      target_id: service.id,
+      metadata: { owner_agent_id: ownerAgentId, name: service.name },
+      request_id: request.requestId,
+    });
+    const coinCfg = await walletsDb.getCoin(service.coin);
+    const coinsMap = coinCfg ? { [coinCfg.coin]: coinCfg } : {};
+    return created(reply, { ...service, price_formated: formatMoney(service.price_cents, service.coin, coinsMap) });
+  });
+
+  fastify.post('/api/services/:id/pause', {
+    schema: { tags: ['Staff'], params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object' } } },
+  }, async (request, reply) => {
+    const service = await servicesDb.getById(request.params.id);
+    if (!service) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Service not found' });
+    await servicesDb.update(service.id, { status: 'paused' });
+    const updated = await servicesDb.getById(service.id);
+    await recordAuditEvent({
+      event_type: 'STAFF_SERVICE_PAUSE',
+      actor_type: 'admin',
+      target_type: 'service',
+      target_id: service.id,
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true, data: updated });
+  });
+
+  fastify.post('/api/services/:id/resume', {
+    schema: { tags: ['Staff'], params: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } } }, response: { 200: { type: 'object' } } },
+  }, async (request, reply) => {
+    const service = await servicesDb.getById(request.params.id);
+    if (!service) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Service not found' });
+    await servicesDb.update(service.id, { status: 'active' });
+    const updated = await servicesDb.getById(service.id);
+    await recordAuditEvent({
+      event_type: 'STAFF_SERVICE_RESUME',
+      actor_type: 'admin',
+      target_type: 'service',
+      target_id: service.id,
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true, data: updated });
   });
 
   fastify.get('/api/executions', {

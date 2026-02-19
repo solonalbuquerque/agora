@@ -28,6 +28,8 @@ const config = {
   humanEmailDevReturnToken: process.env.HUMAN_EMAIL_DEV_RETURN_TOKEN === 'true',
   humanJwtSecret: process.env.HUMAN_JWT_SECRET || '',
   allowInsecureLink: process.env.ALLOW_INSECURE_LINK === 'true',
+  /** Allow localhost/private IPs for webhook URLs when creating services via staff (dev only). */
+  allowInsecureWebhook: process.env.ALLOW_INSECURE_WEBHOOK === 'true',
 
   // Public base URL for building X-Url-Callback sent to the service (e.g. https://api.agora.example.com or http://localhost:3000)
   agoraPublicUrl: (process.env.AGORA_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '') || `http://localhost:${Number(process.env.PORT) || 3000}`,
