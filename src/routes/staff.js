@@ -958,6 +958,56 @@ async function staffRoutes(fastify, opts) {
   const instanceDb = require('../db/instance');
   const bridgeDb = require('../db/bridgeTransfers');
 
+  fastify.post('/api/central/sync-directory', {
+    schema: {
+      tags: ['Staff'],
+      description: 'Force sync exported services to Central directory. Returns count of services found and sent.',
+      response: { 200: { type: 'object' } },
+    },
+  }, async (request, reply) => {
+    const runtimeInstanceConfig = require('../lib/runtimeInstanceConfig');
+    const { instanceId, instanceToken } = await runtimeInstanceConfig.getInstanceConfig();
+    if (!config.agoraCenterUrl || !instanceId || !instanceToken) {
+      return reply.code(400).send({
+        ok: false,
+        code: 'CENTRAL_SYNC_NOT_CONFIGURED',
+        message: 'AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN are required (set in .env or register the instance).',
+        debug: {
+          has_center_url: !!config.agoraCenterUrl,
+          has_instance_id: !!instanceId,
+          has_instance_token: !!instanceToken,
+        },
+      });
+    }
+    // Count exported services before syncing for diagnostic response
+    const exportedResult = await servicesDb.list({
+      status: 'active',
+      visibility: 'exported',
+      export_status: 'active',
+      limit: 200,
+      offset: 0,
+    });
+    const exportedCount = (exportedResult?.rows || []).length;
+    const centralDirectorySync = require('../jobs/centralDirectorySync');
+    try {
+      await centralDirectorySync.syncOnce();
+      return reply.send({
+        ok: true,
+        message: exportedCount === 0
+          ? 'Sync ran but no active exported services found to send.'
+          : `Directory sync completed. ${exportedCount} service(s) sent to Central.`,
+        exported_services_count: exportedCount,
+      });
+    } catch (err) {
+      request.log?.warn({ err }, 'Central directory sync failed');
+      return reply.code(502).send({
+        ok: false,
+        code: 'SYNC_FAILED',
+        message: err?.message || 'Central directory sync failed',
+      });
+    }
+  });
+
   fastify.post('/api/central/sync-ago', {
     schema: {
       tags: ['Staff'],

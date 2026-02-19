@@ -38,8 +38,7 @@ function mapServiceToCentral(service) {
 
 async function syncOnce() {
   const baseUrl = config.agoraCenterUrl;
-  const instanceId = config.instanceId;
-  const instanceToken = config.instanceToken;
+  const { instanceId, instanceToken } = await getInstanceConfig();
 
   if (!baseUrl || !instanceId || !instanceToken) return;
 

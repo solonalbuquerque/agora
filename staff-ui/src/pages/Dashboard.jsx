@@ -36,6 +36,8 @@ export default function Dashboard() {
   const [copyFeedback, setCopyFeedback] = useState('');
   const [syncAgoLoading, setSyncAgoLoading] = useState(false);
   const [syncAgoFeedback, setSyncAgoFeedback] = useState('');
+  const [syncDirLoading, setSyncDirLoading] = useState(false);
+  const [syncDirFeedback, setSyncDirFeedback] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -107,6 +109,21 @@ export default function Dashboard() {
       .finally(() => setSyncAgoLoading(false));
   };
 
+  const handleSyncDirectory = () => {
+    setSyncDirLoading(true);
+    setSyncDirFeedback('');
+    api.centralSyncDirectory()
+      .then((r) => {
+        setSyncDirFeedback(r?.message || 'Sync completed.');
+        setTimeout(() => setSyncDirFeedback(''), 6000);
+      })
+      .catch((e) => {
+        setSyncDirFeedback(e?.message || 'Sync failed.');
+        setTimeout(() => setSyncDirFeedback(''), 6000);
+      })
+      .finally(() => setSyncDirLoading(false));
+  };
+
   return (
     <>
       <PageHeader title="Dashboard" onReload={load} loading={loading} />
@@ -175,27 +192,50 @@ export default function Dashboard() {
               )}
             </div>
             {centralSyncAvailable && (
-              <div className="instance-sync-block">
-                <label>AGO sync (inbound)</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={syncAgoLoading}
-                    onClick={handleSyncAgo}
-                  >
-                    {syncAgoLoading ? 'Syncing…' : 'Force sync'}
-                  </button>
-                  {syncAgoFeedback && (
-                    <span className={syncAgoFeedback.startsWith('Sync completed') ? 'success' : 'error'} style={{ fontSize: '0.9rem' }}>
-                      {syncAgoFeedback}
-                    </span>
-                  )}
+              <>
+                <div className="instance-sync-block">
+                  <label>AGO sync (inbound)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={syncAgoLoading}
+                      onClick={handleSyncAgo}
+                    >
+                      {syncAgoLoading ? 'Syncing…' : 'Force sync'}
+                    </button>
+                    {syncAgoFeedback && (
+                      <span className={syncAgoFeedback.startsWith('Sync completed') ? 'success' : 'error'} style={{ fontSize: '0.9rem' }}>
+                        {syncAgoFeedback}
+                      </span>
+                    )}
+                  </div>
+                  <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>
+                    Fetches INSTANCE_CREDIT/CREDIT_INSTANCE from Central and credits agents.
+                  </p>
                 </div>
-                <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>
-                  Fetches INSTANCE_CREDIT/CREDIT_INSTANCE from Central and credits agents.
-                </p>
-              </div>
+                <div className="instance-sync-block">
+                  <label>Services sync (outbound)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={syncDirLoading}
+                      onClick={handleSyncDirectory}
+                    >
+                      {syncDirLoading ? 'Syncing…' : 'Force sync'}
+                    </button>
+                    {syncDirFeedback && (
+                      <span className={syncDirFeedback.startsWith('Sync completed') ? 'success' : 'error'} style={{ fontSize: '0.9rem' }}>
+                        {syncDirFeedback}
+                      </span>
+                    )}
+                  </div>
+                  <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>
+                    Pushes exported services to Central directory immediately (auto-runs every 60s).
+                  </p>
+                </div>
+              </>
             )}
             <div className="instance-urls">
               <label>Actions</label>
