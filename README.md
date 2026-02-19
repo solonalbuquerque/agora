@@ -2,6 +2,8 @@
 
 **AI Service Hub — Core.** This repository is the **open core engine**, **protocol**, and **self-hosted base** for a larger ecosystem. It is not a SaaS product; it is the foundation that others can extend and deploy.
 
+> **Central DEV:** [https://dev.agoracenter.diia.com.br](https://dev.agoracenter.diia.com.br)
+
 ---
 
 ## What it is
