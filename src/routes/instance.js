@@ -1,12 +1,27 @@
 'use strict';
 
 const instanceDb = require('../db/instance');
+const staffSettingsDb = require('../db/staffSettings');
+const agentsDb = require('../db/agents');
 const config = require('../config');
 const { created, success } = require('../lib/responses');
 const { badRequest } = require('../lib/errors');
 const { recordAuditEvent } = require('../lib/audit');
 const centralClient = require('../lib/centralClient');
 const logger = require('../lib/logger');
+
+/**
+ * Creates (or retrieves) the instance treasury agent and saves its ID to staff_settings.
+ * This agent receives AGO credits from the Center that have no specific to_agent_ref.
+ * Idempotent: if already exists in settings, returns existing ID.
+ */
+async function ensureTreasuryAgent(instanceName) {
+  const existing = await staffSettingsDb.get('instance_treasury_agent_id');
+  if (existing) return existing;
+  const agent = await agentsDb.create(`${instanceName || 'Instance'} Treasury`);
+  await staffSettingsDb.set('instance_treasury_agent_id', agent.id);
+  return agent.id;
+}
 
 function getInstanceToken(request) {
   return request.headers['x-instance-token'] || (request.headers.authorization && request.headers.authorization.replace(/^Bearer\s+/i, ''));
@@ -100,11 +115,15 @@ async function instanceRoutes(fastify) {
             debug: { central_instance_id: centralRes.instance_id },
           });
         }
+        await staffSettingsDb.set('instance_id', centralRes.instance_id);
+        await staffSettingsDb.set('instance_token', activateRes.activation_token);
+        const treasuryAgentId = await ensureTreasuryAgent(name.trim()).catch(() => null);
         return created(reply, {
           instance_id: centralRes.instance_id,
           status: inst.status,
           registration_code: centralRes.registration_code,
           expires_at: centralRes.expires_at,
+          treasury_agent_id: treasuryAgentId,
         });
       } catch (err) {
         const details = err.details || {};
@@ -122,6 +141,8 @@ async function instanceRoutes(fastify) {
     }
 
     const result = await instanceDb.register(name, ownerEmail);
+    await staffSettingsDb.set('instance_id', result.id);
+    await ensureTreasuryAgent(name).catch(() => null);
     return created(reply, {
       instance_id: result.id,
       status: result.status,
@@ -185,6 +206,19 @@ async function instanceRoutes(fastify) {
 
     if (!tokenToUse) return badRequest(reply, 'activation_token is required when Central is not configured');
 
+    // Ensure local row exists — if not (e.g. instance_id set manually via panel), create it from Center data
+    if (config.agoraCenterUrl) {
+      const existing = await instanceDb.getById(instanceId);
+      if (!existing) {
+        try {
+          const centerInst = await centralClient.getInstanceByIdOrSlug(config.agoraCenterUrl, instanceId, request.requestId);
+          if (centerInst) {
+            await instanceDb.registerFromCentral(instanceId, centerInst.name || instanceId, centerInst.owner_email || 'unknown@unknown');
+          }
+        } catch (_) {}
+      }
+    }
+
     let inst;
     if (config.agoraCenterUrl && tokenToUse) {
       inst = await instanceDb.activateWithToken(instanceId, tokenToUse, officialIssuerId);
@@ -192,6 +226,9 @@ async function instanceRoutes(fastify) {
       inst = await instanceDb.activate(instanceId, registrationCode, tokenToUse, officialIssuerId);
     }
     if (!inst) return reply.code(400).send({ ok: false, code: 'BAD_REQUEST', message: 'Invalid or expired registration code (or instance not found)' });
+    await staffSettingsDb.set('instance_id', inst.id);
+    await staffSettingsDb.set('instance_token', tokenToUse);
+    await ensureTreasuryAgent(inst.name).catch(() => null);
     await recordAuditEvent({
       event_type: 'INSTANCE_ACTIVATE',
       actor_type: 'system',

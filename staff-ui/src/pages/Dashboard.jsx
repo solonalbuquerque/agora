@@ -96,12 +96,12 @@ export default function Dashboard() {
     setSyncAgoFeedback('');
     api.centralSyncAgo()
       .then(() => {
-        setSyncAgoFeedback('Sincronização concluída.');
+        setSyncAgoFeedback('Sync completed.');
         load();
         setTimeout(() => setSyncAgoFeedback(''), 4000);
       })
       .catch((e) => {
-        setSyncAgoFeedback(e?.message || 'Falha ao sincronizar.');
+        setSyncAgoFeedback(e?.message || 'Sync failed.');
         setTimeout(() => setSyncAgoFeedback(''), 4000);
       })
       .finally(() => setSyncAgoLoading(false));
@@ -117,16 +117,16 @@ export default function Dashboard() {
         </h3>
         {!centralUrl ? (
           <div className="instance-empty">
-            <p className="muted">Central não configurado.</p>
+            <p className="muted">Central not configured.</p>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
-              Defina <code>AGORA_CENTER_URL</code> (e <code>INSTANCE_ID</code> / <code>INSTANCE_TOKEN</code>) no <code>.env</code> para conectar à Central.
+              Set <code>AGORA_CENTER_URL</code> in <code>.env</code>. Instance ID and token can be set in Instance panel after registration.
             </p>
-            <Link to="/instance" style={{ display: 'inline-block', marginTop: '0.5rem' }}>Configurar em Instance →</Link>
+            <Link to="/instance" style={{ display: 'inline-block', marginTop: '0.5rem' }}>Configure in Instance →</Link>
           </div>
         ) : (
           <div className="instance-grid dashboard-central-grid">
             <div className="instance-block">
-              <label>URL da Central</label>
+              <label>Central URL</label>
               <div className="instance-id-row">
                 <code className="instance-id" title={centralUrl}>{centralUrl}</code>
                 <button
@@ -134,15 +134,15 @@ export default function Dashboard() {
                   className="secondary"
                   style={{ flexShrink: 0 }}
                   onClick={() => copyToClipboard(centralUrl, setCopyFeedback)}
-                  title="Copiar"
+                  title="Copy"
                 >
-                  Copiar
+                  Copy
                 </button>
                 {copyFeedback && <span className="instance-copy-feedback">{copyFeedback}</span>}
               </div>
             </div>
             <div className="instance-block">
-              <label>Saldo AGO (instância)</label>
+              <label>AGO balance (instance)</label>
               <div className="instance-sync-value instance-ago-balance">
                 <strong>{centralAgoUnits}</strong> AGO
               </div>
@@ -160,23 +160,23 @@ export default function Dashboard() {
                   <span>{centralPolicy.visibility_status ?? '—'}</span>
                 </div>
                 <div className="instance-block">
-                  <label>Policy atualizada em</label>
+                  <label>Policy updated at</label>
                   <span>{centralPolicy.updated_at ? new Date(centralPolicy.updated_at).toLocaleString() : '—'}</span>
                 </div>
               </>
             )}
             <div className="instance-sync-block">
-              <label>Bridge pendente (outbound)</label>
+              <label>Bridge pending (outbound)</label>
               <div className="instance-sync-value">
-                <strong>{bridgePending.count}</strong> transferência(s) · <strong>{(Number(bridgePending.total_cents) / 100).toFixed(2)}</strong> AGO
+                <strong>{bridgePending.count}</strong> transfer(s) · <strong>{(Number(bridgePending.total_cents) / 100).toFixed(2)}</strong> AGO
               </div>
               {bridgePending.count > 0 && (
-                <Link to="/bridge" className="secondary" style={{ display: 'inline-block', marginTop: '0.5rem' }}>Ver Bridge →</Link>
+                <Link to="/bridge" className="secondary" style={{ display: 'inline-block', marginTop: '0.5rem' }}>View Bridge →</Link>
               )}
             </div>
             {centralSyncAvailable && (
               <div className="instance-sync-block">
-                <label>Sincronização AGO (inbound)</label>
+                <label>AGO sync (inbound)</label>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
                   <button
                     type="button"
@@ -184,21 +184,21 @@ export default function Dashboard() {
                     disabled={syncAgoLoading}
                     onClick={handleSyncAgo}
                   >
-                    {syncAgoLoading ? 'Sincronizando…' : 'Forçar sincronização'}
+                    {syncAgoLoading ? 'Syncing…' : 'Force sync'}
                   </button>
                   {syncAgoFeedback && (
-                    <span className={syncAgoFeedback.startsWith('Sincronização') ? 'success' : 'error'} style={{ fontSize: '0.9rem' }}>
+                    <span className={syncAgoFeedback.startsWith('Sync completed') ? 'success' : 'error'} style={{ fontSize: '0.9rem' }}>
                       {syncAgoFeedback}
                     </span>
                   )}
                 </div>
                 <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>
-                  Busca créditos INSTANCE_CREDIT/CREDIT_INSTANCE na Central e credita agentes.
+                  Fetches INSTANCE_CREDIT/CREDIT_INSTANCE from Central and credits agents.
                 </p>
               </div>
             )}
             <div className="instance-urls">
-              <label>Ações</label>
+              <label>Actions</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
                 <Link to="/instance">Instance</Link>
                 <Link to="/bridge">Bridge</Link>
@@ -216,13 +216,24 @@ export default function Dashboard() {
           <div className="instance-empty">
             <p><strong>No instance registered</strong></p>
             <p className="muted">
-              Register this deployment via <code>POST /instance/register</code> to get an <code>instance_id</code>.
-              Use that ID as <code>INSTANCE_ID</code> in your <code>.env</code>. Then complete activation with Central/Official.
+              Register or link an instance in the Instance panel. Instance ID and token are saved automatically.
             </p>
             <Link to="/instance" className="primary" style={{ display: 'inline-block', marginTop: '0.5rem' }}>Open Instance →</Link>
           </div>
         ) : (
           <div className="instance-grid">
+            {instanceSummary.name && (
+              <div className="instance-block">
+                <label>Name</label>
+                <span>{instanceSummary.name}</span>
+              </div>
+            )}
+            {instanceSummary.slug && (
+              <div className="instance-block">
+                <label>Slug</label>
+                <code>{instanceSummary.slug}</code>
+              </div>
+            )}
             <div className="instance-block">
               <label>Instance ID</label>
               <div className="instance-id-row">

@@ -643,6 +643,8 @@ async function staffRoutes(fastify, opts) {
     return;
   });
 
+  const pkg = require('../../package.json');
+
   fastify.get('/api/config', {
     schema: { tags: ['Staff'], description: 'Read-only config (safe flags)', response: { 200: { type: 'object' } } },
   }, async (_request, reply) => {
@@ -670,6 +672,8 @@ async function staffRoutes(fastify, opts) {
         export_derived: compliant && exportEnabled ? 'enabled' : 'disabled',
         base_url: baseUrl,
         agora_center_url: config.agoraCenterUrl || null,
+        version: pkg.version || '1.0.0',
+        build: process.env.BUILD_ID || process.env.BUILD_TIMESTAMP || null,
       },
     };
     reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
@@ -757,11 +761,13 @@ async function staffRoutes(fastify, opts) {
       response: { 200: { type: 'object', properties: { ok: { type: 'boolean' }, message: { type: 'string' } } } },
     },
   }, async (request, reply) => {
-    if (!config.agoraCenterUrl || !config.instanceId || !config.instanceToken) {
+    const runtimeInstanceConfig = require('../lib/runtimeInstanceConfig');
+    const { instanceId, instanceToken } = await runtimeInstanceConfig.getInstanceConfig();
+    if (!config.agoraCenterUrl || !instanceId || !instanceToken) {
       return reply.code(400).send({
         ok: false,
         code: 'CENTRAL_SYNC_NOT_CONFIGURED',
-        message: 'AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN are required for Central sync.',
+        message: 'AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN are required (set in .env or register the instance).',
       });
     }
     const centralEventsConsumer = require('../jobs/centralEventsConsumer');
@@ -798,29 +804,140 @@ async function staffRoutes(fastify, opts) {
       const instanceCentralPolicyDb = require('../db/instanceCentralPolicy');
       central_policy = await instanceCentralPolicyDb.get(inst.id);
     }
-    const central_sync_available = !!(config.agoraCenterUrl && config.instanceId && config.instanceToken);
+    const runtimeInstanceConfig = require('../lib/runtimeInstanceConfig');
+    const { instanceId: runtimeInstanceId, instanceToken: runtimeInstanceToken } = await runtimeInstanceConfig.getInstanceConfig();
+    const central_sync_available = !!(config.agoraCenterUrl && runtimeInstanceId && runtimeInstanceToken);
+    const configured_instance_id = runtimeInstanceId || inst?.id || null;
+    // Warn when .env INSTANCE_ID differs from staff_settings (panel took priority)
+    const dbInstanceId = await staffSettingsDb.get('instance_id');
+    const env_instance_id = config.instanceId || null;
+    const env_conflict = !!(env_instance_id && dbInstanceId && env_instance_id !== dbInstanceId);
+    // Always fetch name/slug and treasury from Center when configured
+    let center_instance_info = null;
+    let center_treasury = null;
+    if (config.agoraCenterUrl && configured_instance_id && runtimeInstanceToken) {
+      const centralClient = require('../lib/centralClient');
+      const [ciResult, treasuryResult] = await Promise.allSettled([
+        centralClient.getInstanceByIdOrSlug(config.agoraCenterUrl, configured_instance_id, null),
+        centralClient.getCentralTreasury(config.agoraCenterUrl, configured_instance_id, runtimeInstanceToken),
+      ]);
+      if (ciResult.status === 'fulfilled' && ciResult.value) {
+        const ci = ciResult.value;
+        center_instance_info = { name: ci.name, slug: ci.slug, status: ci.status, base_url: ci.base_url };
+      }
+      if (treasuryResult.status === 'fulfilled' && treasuryResult.value) {
+        center_treasury = treasuryResult.value;
+      }
+    } else if (config.agoraCenterUrl && configured_instance_id) {
+      try {
+        const centralClient = require('../lib/centralClient');
+        const ci = await centralClient.getInstanceByIdOrSlug(config.agoraCenterUrl, configured_instance_id, null);
+        if (ci) center_instance_info = { name: ci.name, slug: ci.slug, status: ci.status, base_url: ci.base_url };
+      } catch (_) {}
+    }
     const response = {
       ok: true,
-      data: inst ? {
-        ...inst,
-        compliant: inst.status === 'registered',
-        export_services_enabled: exportEnabled,
+      data: {
+        ...(inst ? {
+          ...inst,
+          compliant: inst.status === 'registered',
+          export_services_enabled: exportEnabled,
+        } : {}),
         total_ago_cents,
         central_policy,
         central_sync_available,
-      } : { total_ago_cents, central_policy, central_sync_available },
+        configured_instance_id,
+        center_instance_info,
+        center_treasury,
+        env_instance_id,
+        env_conflict,
+        treasury_agent_id: await staffSettingsDb.get('instance_treasury_agent_id'),
+      },
     };
     return reply.send(response);
+  });
+
+  fastify.patch('/api/instance/config', {
+    schema: {
+      tags: ['Staff'],
+      description: 'Set instance_id and optionally instance_token (stored in DB, used at runtime). Overrides .env when set.',
+      body: {
+        type: 'object',
+        required: ['instance_id'],
+        properties: {
+          instance_id: { type: 'string', format: 'uuid', description: 'Instance UUID from Center' },
+          instance_token: { type: 'string', description: 'Activation token from Center (optional, leave empty to keep current)' },
+        },
+      },
+      response: { 200: { type: 'object', properties: { ok: { type: 'boolean' }, data: { type: 'object' }, message: { type: 'string' } } } },
+    },
+  }, async (request, reply) => {
+    if (!config.agoraCenterUrl) {
+      return reply.code(400).send({
+        ok: false,
+        code: 'CENTRAL_NOT_CONFIGURED',
+        message: 'AGORA_CENTER_URL is required to configure the instance.',
+      });
+    }
+    const { instance_id: instanceId, instance_token: instanceToken } = request.body || {};
+    if (!instanceId || typeof instanceId !== 'string' || !instanceId.trim()) {
+      return reply.code(400).send({
+        ok: false,
+        code: 'BAD_REQUEST',
+        message: 'instance_id is required.',
+      });
+    }
+    const id = instanceId.trim();
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(id)) {
+      return reply.code(400).send({
+        ok: false,
+        code: 'BAD_REQUEST',
+        message: 'instance_id must be a valid UUID.',
+      });
+    }
+    await staffSettingsDb.set('instance_id', id);
+    if (instanceToken != null && typeof instanceToken === 'string' && instanceToken.trim()) {
+      await staffSettingsDb.set('instance_token', instanceToken.trim());
+    }
+    await recordAuditEvent({
+      event_type: 'INSTANCE_CONFIG_UPDATED',
+      actor_type: 'admin',
+      target_type: 'instance',
+      target_id: id,
+      metadata: { via: 'staff_panel' },
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true, data: { instance_id: id }, message: 'Configuration saved. Sync with Center will use these values.' });
+  });
+
+  fastify.post('/api/instance/ensure-treasury-agent', {
+    schema: { tags: ['Staff'], description: 'Ensure instance treasury agent exists (creates if not). Used for existing installations before this feature was added.' },
+  }, async (request, reply) => {
+    const compliance = require('../lib/compliance');
+    const agentsDb = require('../db/agents');
+    const inst = await compliance.getCurrentInstance();
+    const existing = await staffSettingsDb.get('instance_treasury_agent_id');
+    if (existing) {
+      const agentRow = await agentsDb.getById(existing);
+      return reply.send({ ok: true, data: { treasury_agent_id: existing, created: false, name: agentRow?.name } });
+    }
+    const agentName = inst?.name ? `${inst.name} Treasury` : 'Instance Treasury';
+    const agent = await agentsDb.create(agentName);
+    await staffSettingsDb.set('instance_treasury_agent_id', agent.id);
+    return reply.send({ ok: true, data: { treasury_agent_id: agent.id, created: true, name: agentName } });
   });
 
   fastify.post('/api/instance/sync-policy', {
     schema: { tags: ['Staff'], description: 'Trigger Central policy sync now (GET /instances/me/policy)' },
   }, async (request, reply) => {
-    if (!config.agoraCenterUrl || !config.instanceId || !config.instanceToken) {
+    const runtimeInstanceConfig = require('../lib/runtimeInstanceConfig');
+    const { instanceId, instanceToken } = await runtimeInstanceConfig.getInstanceConfig();
+    if (!config.agoraCenterUrl || !instanceId || !instanceToken) {
       return reply.code(400).send({
         ok: false,
         code: 'CENTRAL_NOT_CONFIGURED',
-        message: 'AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN are required for policy sync.',
+        message: 'AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN are required (set in .env or register the instance).',
       });
     }
     const centralPolicySync = require('../jobs/centralPolicySync');
@@ -1025,18 +1142,39 @@ async function staffRoutes(fastify, opts) {
       target_id: r.target_id,
       created_at: r.created_at,
     }));
-    const instance_summary = inst ? {
+    const base_url = (config.agoraPublicUrl || '').replace(/\/$/, '') || `http://localhost:${config.port || 3000}`;
+    const agora_center_url = config.agoraCenterUrl || null;
+    const runtimeInstanceConfig = require('../lib/runtimeInstanceConfig');
+    const { instanceId: dashInstanceId, instanceToken: dashInstanceToken } = await runtimeInstanceConfig.getInstanceConfig();
+    let instance_summary = inst ? {
       instance_id: inst.id,
       name: inst.name,
+      slug: inst.slug,
       status: inst.status,
       compliant: inst.status === 'registered',
       export_services_enabled: exportEnabled === 'true',
       last_seen_at: inst.last_seen_at,
       registered_at: inst.registered_at,
     } : null;
-    const base_url = (config.agoraPublicUrl || '').replace(/\/$/, '') || `http://localhost:${config.port || 3000}`;
-    const agora_center_url = config.agoraCenterUrl || null;
-    const central_sync_available = !!(agora_center_url && config.instanceId && config.instanceToken);
+    if (!instance_summary && dashInstanceId && agora_center_url) {
+      try {
+        const centralClient = require('../lib/centralClient');
+        const centerInstance = await centralClient.getInstanceByIdOrSlug(agora_center_url, dashInstanceId, null);
+        if (centerInstance) {
+          instance_summary = {
+            instance_id: centerInstance.id,
+            name: centerInstance.name,
+            slug: centerInstance.slug,
+            status: centerInstance.status,
+            compliant: centerInstance.status === 'registered',
+            export_services_enabled: exportEnabled === 'true',
+            last_seen_at: centerInstance.last_seen_at,
+            registered_at: null,
+          };
+        }
+      } catch (_) {}
+    }
+    const central_sync_available = !!(agora_center_url && dashInstanceId && dashInstanceToken);
     const central_ago_cents = (agoSumRes?.rows?.[0] != null) ? Number(agoSumRes.rows[0].total) : 0;
     const central_policy_summary = (centralPolicyResolved && typeof centralPolicyResolved === 'object') ? {
       trust_level: centralPolicyResolved.trust_level || 'unverified',

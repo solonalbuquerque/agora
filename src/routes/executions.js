@@ -166,8 +166,8 @@ async function executionsRoutes(fastify, opts) {
     }
 
     const centralUrl = config.agoraCenterUrl;
-    const myInstanceId = config.instanceId;
-    const myInstanceToken = config.instanceToken;
+    const runtimeInstanceConfig = require('../lib/runtimeInstanceConfig');
+    const { instanceId: myInstanceId, instanceToken: myInstanceToken } = await runtimeInstanceConfig.getInstanceConfig();
 
     // No target specified → this instance handles the request (local execution)
     if (!targetInstanceIdOrSlug) {

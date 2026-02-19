@@ -6,6 +6,7 @@
  */
 
 const config = require('../config');
+const { getInstanceConfig } = require('../lib/runtimeInstanceConfig');
 const centralClient = require('../lib/centralClient');
 const logger = require('../lib/logger');
 const instanceCentralPolicyDb = require('../db/instanceCentralPolicy');
@@ -15,8 +16,7 @@ const SYNC_INTERVAL_MS = Number(process.env.CENTRAL_POLICY_SYNC_MS) || 300_000; 
 
 async function syncOnce() {
   const baseUrl = config.agoraCenterUrl;
-  const instanceId = config.instanceId;
-  const instanceToken = config.instanceToken;
+  const { instanceId, instanceToken } = await getInstanceConfig();
 
   if (!baseUrl || !instanceId || !instanceToken) return;
 
@@ -35,11 +35,8 @@ async function syncOnce() {
 }
 
 function start() {
-  if (!config.agoraCenterUrl || !config.instanceId || !config.instanceToken) {
-    logger.log('info', 'Central policy sync skipped: AGORA_CENTER_URL, INSTANCE_ID and INSTANCE_TOKEN required');
-    return;
-  }
-  logger.log('info', 'Central policy sync started', { instance_id: config.instanceId, interval_ms: SYNC_INTERVAL_MS });
+  if (!config.agoraCenterUrl) return;
+  logger.log('info', 'Central policy sync started (runs when instance is registered)', { interval_ms: SYNC_INTERVAL_MS });
   const run = () => {
     syncOnce().catch((err) => logger.log('error', 'Central policy sync error', { error: err.message }));
   };

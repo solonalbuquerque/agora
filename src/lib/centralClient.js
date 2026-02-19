@@ -240,6 +240,15 @@ async function getCentralPolicy(baseUrl, instanceId, instanceToken, requestId = 
 }
 
 /**
+ * Fetch this instance's AGO treasury balance from Center (GET /instances/me/treasury).
+ * @returns {Promise<{ coin: string, allocated_cents: number, available_cents: number }>}
+ */
+async function getCentralTreasury(baseUrl, instanceId, instanceToken, requestId = null) {
+  const path = '/instances/me/treasury';
+  return centralGetWithInstanceAuth(baseUrl, instanceId, instanceToken, path, requestId);
+}
+
+/**
  * Fetch events for this instance from Central (pull). Uses instance auth.
  * @param {string} baseUrl - AGORA_CENTER_URL
  * @param {string} instanceId - instance id
@@ -438,6 +447,7 @@ module.exports = {
   activateCentral,
   centralRequest,
   getCentralPolicy,
+  getCentralTreasury,
   getCentralEvents,
   ackCentralEvent,
   postExportedServices,

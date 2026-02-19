@@ -83,6 +83,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [ready, setReady] = useState(false);
+  const [appConfig, setAppConfig] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const initialOpen = useMemo(() => getSectionKeyForPath(location.pathname), []);
   const [expandedSections, setExpandedSections] = useState(() => new Set([initialOpen]));
@@ -94,7 +95,10 @@ export default function Layout() {
 
   useEffect(() => {
     api.config()
-      .then(() => setReady(true))
+      .then((r) => {
+        setAppConfig(r?.data ?? null);
+        setReady(true);
+      })
       .catch((e) => {
         if (e.status === 401) navigate('/login', { replace: true });
         else setReady(true);
@@ -174,6 +178,12 @@ export default function Layout() {
             );
           })}
         </nav>
+        {appConfig && (
+          <div className="sidebar-footer" title={appConfig.build ? `Build: ${appConfig.build}` : 'Version'}>
+            <span className="sidebar-version">v{appConfig.version || '?'}</span>
+            {appConfig.build && <span className="sidebar-build">{appConfig.build}</span>}
+          </div>
+        )}
       </aside>
       <main className="main">
         <Outlet />

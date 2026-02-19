@@ -31,6 +31,9 @@ label { display: block; margin-bottom: 0.25rem; color: #a1a1aa; font-size: 0.875
 .sidebar-url a { color: #71717a; text-decoration: none; }
 .sidebar-url a:hover { color: #a1a1aa; text-decoration: underline; }
 .sidebar-nav { flex: 1; overflow-y: auto; padding: 0.5rem 0; }
+.sidebar-footer { padding: 0.5rem 1rem; border-top: 1px solid #27272a; font-size: 0.7rem; color: #71717a; display: flex; flex-direction: column; gap: 0.15rem; }
+.sidebar-version { font-weight: 500; color: #a1a1aa; }
+.sidebar-build { font-size: 0.65rem; color: #52525b; word-break: break-all; }
 .nav-section { margin-bottom: 0; }
 .nav-section-title { 
   padding: 0.5rem 1rem 0.25rem; 

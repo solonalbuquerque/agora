@@ -8,11 +8,15 @@ const RESERVED_COIN = config.reservedCoin || 'AGO';
 const COMPLIANT_STATUS = 'registered';
 
 /**
- * Get the current instance (this deployment). Uses config.instanceId if set, else first instance by id.
+ * Get the current instance (this deployment).
+ * Priority: staff_settings.instance_id (panel registration) > config.instanceId (.env) > first instance in DB.
+ * staff_settings wins because panel registration is the user's active intent.
  */
 async function getCurrentInstance() {
-  if (config.instanceId) {
-    return instanceDb.getById(config.instanceId);
+  const fromDb = await staffSettingsDb.get('instance_id');
+  const instanceId = fromDb || config.instanceId || null;
+  if (instanceId) {
+    return instanceDb.getById(instanceId);
   }
   const { query } = require('../db/index');
   const res = await query('SELECT id, name, owner_email, status, created_at, registered_at, last_seen_at, official_issuer_id FROM instance ORDER BY created_at ASC LIMIT 1', []);

@@ -7,7 +7,6 @@
   },
   "system": {
     "available_coins": [
-      "AGO",
       "AGOTEST"
     ],
     "service": "agora-core",

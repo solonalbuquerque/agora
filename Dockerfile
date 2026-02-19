@@ -15,7 +15,12 @@ EXPOSE 3000
 CMD ["nodemon", "src/server.js"]
 
 # Production: devDependencies omitted (default target)
+# Pass --build-arg BUILD_ID=xxx or BUILD_TIMESTAMP=yyy to set version info
 FROM base AS production
+ARG BUILD_ID
+ARG BUILD_TIMESTAMP
+ENV BUILD_ID=${BUILD_ID}
+ENV BUILD_TIMESTAMP=${BUILD_TIMESTAMP}
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY . .
