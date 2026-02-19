@@ -259,26 +259,32 @@ export default function Instance() {
               </div>
             ) : (
               <form onSubmit={handleRegister}>
-                <div className="form-row">
-                  <label>Name</label>
-                  <input value={registerForm.name} onChange={(e) => setRegisterForm((f) => ({ ...f, name: e.target.value }))} placeholder="Instance name" />
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <div className="form-row" style={{ flex: '1 1 12rem' }}>
+                    <label>Name</label>
+                    <input value={registerForm.name} onChange={(e) => setRegisterForm((f) => ({ ...f, name: e.target.value }))} placeholder="Instance name" />
+                  </div>
+                  {centralUrl && (
+                    <div className="form-row" style={{ flex: '1 1 12rem' }}>
+                      <label>Slug <span className="muted" style={{ fontWeight: 'normal', fontSize: '0.85rem' }}>(required)</span></label>
+                      <input value={registerForm.slug} onChange={(e) => setRegisterForm((f) => ({ ...f, slug: e.target.value }))} placeholder="my-instance" />
+                    </div>
+                  )}
                 </div>
+                {centralUrl && (
+                  <p className="muted" style={{ marginTop: '-0.5rem', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
+                    Slug: unique identifier (a-z, 0-9, _, -). Required when registering with Central.
+                  </p>
+                )}
                 <div className="form-row">
                   <label>Owner email</label>
                   <input type="email" value={registerForm.owner_email} onChange={(e) => setRegisterForm((f) => ({ ...f, owner_email: e.target.value }))} placeholder="owner@example.com" />
                 </div>
                 {centralUrl && (
-                  <>
-                    <div className="form-row">
-                      <label>Slug</label>
-                      <input value={registerForm.slug} onChange={(e) => setRegisterForm((f) => ({ ...f, slug: e.target.value }))} placeholder="my-instance" />
-                      <span className="muted" style={{ fontSize: '0.85rem' }}>Unique identifier (a-z, 0-9, _, -). Required when using Central.</span>
-                    </div>
-                    <div className="form-row">
-                      <label>License code (optional)</label>
-                      <input value={registerForm.license_code} onChange={(e) => setRegisterForm((f) => ({ ...f, license_code: e.target.value }))} placeholder="Only if slug contains reserved term" />
-                    </div>
-                  </>
+                  <div className="form-row">
+                    <label>License code (optional)</label>
+                    <input value={registerForm.license_code} onChange={(e) => setRegisterForm((f) => ({ ...f, license_code: e.target.value }))} placeholder="Only if slug contains reserved term" />
+                  </div>
                 )}
                 <button type="submit" className="primary" disabled={registering}>{registering ? 'Registering…' : 'Register'}</button>
               </form>

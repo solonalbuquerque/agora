@@ -19,6 +19,7 @@ FROM base AS production
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY . .
+RUN cd staff-ui && npm ci && npm run build
 RUN sed -i 's/\r$//' scripts/docker-entrypoint.sh && chmod +x scripts/docker-entrypoint.sh
 ENTRYPOINT ["/bin/sh", "/app/scripts/docker-entrypoint.sh"]
 USER agora

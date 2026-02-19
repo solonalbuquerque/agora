@@ -3,7 +3,9 @@
 
 services:
   api:
-    build: .
+    build:
+      context: .
+      target: production
     ports:
       - "3000:3000"
     env_file:
@@ -11,8 +13,7 @@ services:
     environment:
       DATABASE_URL: postgres://agora:agora@postgres:5432/agora
       REDIS_URL: redis://redis:6379
-      # Do host, o Center está em localhost:3001; dentro do container use host.docker.internal
-      AGORA_CENTER_URL: http://host.docker.internal:3001
+      # AGORA_CENTER_URL vem do .env (ex: https://dev.agoracenter.diia.com.br ou https://agoracenter.diia.com.br)
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
