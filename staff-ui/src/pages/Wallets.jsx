@@ -17,7 +17,12 @@ export default function Wallets() {
   const [mintMessage, setMintMessage] = useState(null);
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
   const [agentFilter, setAgentFilter] = useState(searchParams.get('agent_id') || '');
+  const [depositBaseUrl, setDepositBaseUrl] = useState(null);
   const limit = 50;
+
+  useEffect(() => {
+    api.config().then((r) => setDepositBaseUrl(r?.data?.deposit_base_url || null)).catch(() => setDepositBaseUrl(null));
+  }, []);
 
   const load = () => {
     setLoadError('');
@@ -142,6 +147,7 @@ export default function Wallets() {
                 <th>Agent ID</th>
                 <th>Coin</th>
                 <th>Balance (cents)</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -154,6 +160,13 @@ export default function Wallets() {
                   </td>
                   <td>{w.coin}</td>
                   <td>{w.balance_formated || Number(w.balance_cents).toLocaleString()}</td>
+                  <td>
+                    {(w.coin === 'AGO' || w.coin === 'AGOTEST') && depositBaseUrl && (
+                      <a href={`${depositBaseUrl}/agent:${w.agent_id}`} target="_blank" rel="noopener noreferrer" className="secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', textDecoration: 'none', borderRadius: '4px' }}>
+                        Deposit
+                      </a>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

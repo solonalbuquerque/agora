@@ -941,8 +941,12 @@ async function staffRoutes(fastify, opts) {
     schema: { tags: ['Staff'], description: 'Read-only config (safe flags)', response: { 200: { type: 'object' } } },
   }, async (_request, reply) => {
     const compliance = require('../lib/compliance');
+    const runtimeInstanceConfig = require('../lib/runtimeInstanceConfig');
     const compliant = await compliance.isInstanceCompliant();
     const exportEnabled = (await staffSettingsDb.get('export_services_enabled')) === 'true';
+    const { instanceId: configInstanceId } = await runtimeInstanceConfig.getInstanceConfig();
+    const inst = await compliance.getCurrentInstance();
+    const instanceIdForDeposit = inst?.id ?? configInstanceId;
     const publicBotRegEnabled = (await staffSettingsDb.get('public_bot_registration_enabled')) === 'true';
     const publicBotRegKeyHash = await staffSettingsDb.get('public_bot_registration_key_hash');
     const botsCanRegisterServices = (await staffSettingsDb.get('bots_can_register_services')) !== 'false';
@@ -964,6 +968,9 @@ async function staffRoutes(fastify, opts) {
         export_derived: compliant && exportEnabled ? 'enabled' : 'disabled',
         base_url: baseUrl,
         agora_center_url: config.agoraCenterUrl || null,
+        deposit_base_url: (config.agoraCenterUrl && instanceIdForDeposit)
+          ? `${(config.agoraCenterUrl || '').replace(/\/$/, '')}/deposit/${instanceIdForDeposit}`
+          : null,
         version: pkg.version || '1.0.0',
         build: process.env.BUILD_ID || process.env.BUILD_TIMESTAMP || null,
       },
@@ -1517,7 +1524,26 @@ async function staffRoutes(fastify, opts) {
       } catch (_) {}
     }
     const central_sync_available = !!(agora_center_url && dashInstanceId && dashInstanceToken);
-    const central_ago_cents = (agoSumRes?.rows?.[0] != null) ? Number(agoSumRes.rows[0].total) : 0;
+    let central_ago_cents = (agoSumRes?.rows?.[0] != null) ? Number(agoSumRes.rows[0].total) : 0;
+    let central_ago_breakdown = null;
+    if (central_sync_available && agora_center_url && dashInstanceId && dashInstanceToken) {
+      try {
+        const centralClient = require('../lib/centralClient');
+        const treasury = await centralClient.getCentralTreasury(agora_center_url, dashInstanceId, dashInstanceToken);
+        if (treasury) {
+          const allocated = Number(treasury.allocated_cents ?? 0);
+          const available = Number(treasury.available_cents ?? 0);
+          const wallets = Number(treasury.wallets_balance_cents ?? 0);
+          central_ago_breakdown = {
+            total_cents: allocated + wallets,
+            allocated_cents: allocated,
+            available_cents: available,
+            wallets_balance_cents: wallets,
+          };
+          central_ago_cents = allocated + wallets;
+        }
+      } catch (_) {}
+    }
     const central_policy_summary = (centralPolicyResolved && typeof centralPolicyResolved === 'object') ? {
       trust_level: centralPolicyResolved.trust_level || 'unverified',
       visibility_status: centralPolicyResolved.visibility_status || 'unlisted',
@@ -1531,6 +1557,7 @@ async function staffRoutes(fastify, opts) {
         agora_center_url,
         central_sync_available,
         central_ago_cents,
+        central_ago_breakdown,
         central_policy_summary,
         bridge_pending_summary: { count: bridgePending.count, total_cents: bridgePending.total_cents },
         executions_last_24h: byStatus,

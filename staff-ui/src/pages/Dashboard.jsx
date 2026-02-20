@@ -91,7 +91,10 @@ export default function Dashboard() {
   const centralUrl = data?.agora_center_url ?? null;
   const centralAgoCents = data?.central_ago_cents ?? 0;
   const centralAgoUnits = (Number(centralAgoCents) / 100).toFixed(2);
+  const centralAgoBreakdown = data?.central_ago_breakdown ?? null;
   const centralPolicy = data?.central_policy_summary ?? null;
+  const instanceId = data?.instance_summary?.instance_id ?? null;
+  const depositUrl = centralUrl && instanceId ? `${centralUrl.replace(/\/$/, '')}/deposit/${instanceId}` : null;
 
   const handleSyncAgo = () => {
     setSyncAgoLoading(true);
@@ -158,12 +161,37 @@ export default function Dashboard() {
                 {copyFeedback && <span className="instance-copy-feedback">{copyFeedback}</span>}
               </div>
             </div>
-            <div className="instance-block">
-              <label>AGO balance (instance)</label>
-              <div className="instance-sync-value instance-ago-balance">
-                <strong>{centralAgoUnits}</strong> AGO
+            {centralAgoBreakdown ? (
+              <div className="instance-block" style={{ gridColumn: '1 / -1' }}>
+                <label>AGO balance (Central)</label>
+                <div className="instance-sync-value instance-ago-balance" style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>
+                  <strong>{(centralAgoBreakdown.total_cents / 100).toFixed(2)} AGO</strong>
+                  {' · '}
+                  {(centralAgoBreakdown.allocated_cents / 100).toFixed(2)} allocated
+                  {' · '}
+                  {(centralAgoBreakdown.available_cents / 100).toFixed(2)} available
+                  {' · '}
+                  {(centralAgoBreakdown.wallets_balance_cents / 100).toFixed(2)} in wallets (deposits)
+                </div>
+                {depositUrl && (
+                  <a href={depositUrl} target="_blank" rel="noopener noreferrer" className="primary" style={{ display: 'inline-block', padding: '0.5rem 1rem', textDecoration: 'none', borderRadius: '6px' }}>
+                    Credit AGO
+                  </a>
+                )}
               </div>
-            </div>
+            ) : (
+              <div className="instance-block">
+                <label>AGO balance (instance)</label>
+                <div className="instance-sync-value instance-ago-balance">
+                  <strong>{centralAgoUnits}</strong> AGO
+                  {depositUrl && (
+                    <a href={depositUrl} target="_blank" rel="noopener noreferrer" className="primary" style={{ display: 'inline-block', marginLeft: '0.5rem', padding: '0.25rem 0.75rem', fontSize: '0.875rem', textDecoration: 'none', borderRadius: '6px' }}>
+                      Credit AGO
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
             {centralPolicy && (
               <>
                 <div className="instance-block">

@@ -16,6 +16,7 @@ export default function AgentDetail() {
   const [trustLevels, setTrustLevels] = useState([]);
   const [creatingService, setCreatingService] = useState(false);
   const [coins, setCoins] = useState([]);
+  const [depositBaseUrl, setDepositBaseUrl] = useState(null);
   const [serviceForm, setServiceForm] = useState({
     name: '',
     description: '',
@@ -72,6 +73,7 @@ export default function AgentDetail() {
     load();
     loadRelated();
     api.trustLevels().then((r) => setTrustLevels(r?.data?.rows || [])).catch(() => setTrustLevels([]));
+    api.config().then((r) => setDepositBaseUrl(r?.data?.deposit_base_url || null)).catch(() => setDepositBaseUrl(null));
   }, [id]);
 
   useEffect(() => {
@@ -295,6 +297,7 @@ export default function AgentDetail() {
                   <tr>
                     <th>Coin</th>
                     <th>Balance (cents)</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -302,6 +305,13 @@ export default function AgentDetail() {
                     <tr key={w.coin}>
                       <td>{w.coin}</td>
                       <td>{w.balance_formated || Number(w.balance_cents).toLocaleString()}</td>
+                      <td>
+                        {(w.coin === 'AGO' || w.coin === 'AGOTEST') && depositBaseUrl && (
+                          <a href={`${depositBaseUrl}/agent:${id}`} target="_blank" rel="noopener noreferrer" className="secondary" style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', textDecoration: 'none', borderRadius: '4px' }}>
+                            Deposit
+                          </a>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

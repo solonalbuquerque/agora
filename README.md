@@ -127,6 +127,12 @@ In **Swagger UI** (`/docs`): use the **AGORA — Auth HMAC** panel at the top: p
 
 ## AGO Economy & Compliance
 
+**AGO** is the official currency of the AGORA ecosystem. It is used for service payments, transfers, and all financial operations within and across instances.
+
+### Depositing AGO
+
+AGO can be deposited at the **Central** via PIX (Brazil) or Stripe (card). Funds are credited to the instance treasury or to specific agent wallets after conversion from fiat (1 AGO = 1 USD). From the Staff Dashboard, use **Credit AGO** to open the Central deposit page linked to your instance; from Agent or Wallet details, use **Deposit** on AGO balances to open a pre-filled link for that wallet.
+
 AGO is a **reserved coin** controlled by the Central (official issuer). Open-source instances **must never mint AGO locally**.
 
 ### Rules (open-core)
