@@ -847,6 +847,94 @@ async function staffRoutes(fastify, opts) {
     return;
   });
 
+  /**
+   * GET /staff/api/executions/callbacks
+   * Callback Security: lista execuções com status de token, data de recebimento e motivo de rejeição.
+   * Filtros: status, token_status (Valid|Used|Expired), from_date, to_date, q (uuid search), limit, offset.
+   */
+  fastify.get('/api/executions/callbacks', {
+    schema: { tags: ['Staff'], description: 'Callback security: list executions with callback token status and rejection reason.' },
+  }, async (request, reply) => {
+    const { status, token_status, from_date, to_date, q, limit: rawLimit, offset: rawOffset } = request.query || {};
+    const limit = Math.min(Math.max(Number(rawLimit) || 50, 1), 200);
+    const offset = Math.max(Number(rawOffset) || 0, 0);
+
+    const params = [];
+    const where = ['1=1'];
+    let idx = 1;
+
+    if (status) {
+      where.push(`e.status = $${idx++}`);
+      params.push(status);
+    }
+
+    // token_status é derivado — convertemos para condição SQL
+    if (token_status === 'Used') {
+      where.push(`e.callback_received_at IS NOT NULL`);
+    } else if (token_status === 'Expired') {
+      where.push(`e.callback_received_at IS NULL AND e.callback_token_expires_at IS NOT NULL AND e.callback_token_expires_at < NOW()`);
+    } else if (token_status === 'Valid') {
+      where.push(`e.callback_received_at IS NULL AND (e.callback_token_expires_at IS NULL OR e.callback_token_expires_at >= NOW())`);
+    }
+
+    if (from_date) {
+      where.push(`e.created_at >= $${idx++}`);
+      params.push(from_date);
+    }
+    if (to_date) {
+      where.push(`e.created_at <= $${idx++}`);
+      params.push(to_date);
+    }
+    if (q) {
+      where.push(`e.uuid::text ILIKE $${idx++}`);
+      params.push(`%${q}%`);
+    }
+
+    const whereClause = where.join(' AND ');
+
+    const countRes = await query(
+      `SELECT COUNT(*)::int AS total FROM executions e WHERE ${whereClause}`,
+      params
+    );
+    const total = countRes.rows[0]?.total ?? 0;
+
+    params.push(limit, offset);
+    const res = await query(
+      `SELECT
+         e.uuid          AS execution_id,
+         e.service_id,
+         s.name          AS service_name,
+         e.status,
+         e.latency_ms,
+         e.created_at,
+         e.callback_received_at,
+         e.callback_token_expires_at,
+         CASE
+           WHEN e.callback_received_at IS NOT NULL                                                          THEN 'Used'
+           WHEN e.callback_token_expires_at IS NOT NULL AND e.callback_token_expires_at < NOW()             THEN 'Expired'
+           ELSE 'Valid'
+         END AS callback_token_status,
+         CASE
+           WHEN e.status = 'failed' AND e.callback_received_at IS NULL
+                AND e.callback_token_expires_at IS NOT NULL AND e.callback_token_expires_at < NOW()          THEN 'token_expired'
+           WHEN e.status = 'failed' AND e.callback_received_at IS NOT NULL                                  THEN 'execution_failed'
+           WHEN e.status = 'failed'                                                                         THEN 'no_callback_received'
+           ELSE NULL
+         END AS rejected_reason
+       FROM executions e
+       LEFT JOIN services s ON s.id = e.service_id
+       WHERE ${whereClause}
+       ORDER BY e.created_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      params
+    );
+
+    const response = { ok: true, data: { rows: res.rows, total } };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
+  });
+
   const pkg = require('../../package.json');
 
   fastify.get('/api/config', {
@@ -1603,6 +1691,302 @@ async function staffRoutes(fastify, opts) {
       throw err;
     }
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SECURITY & OBSERVABILITY endpoints (B1 / B2)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** GET /staff/api/security/overview — resumo de segurança com dados reais */
+  fastify.get('/api/security/overview', {
+    schema: { tags: ['Staff'], description: 'Security overview: real aggregates from audit + executions.' },
+  }, async (_request, reply) => {
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [authFailRes, webhookBlockRes, cbRes, replayRes, cbRejectRes] = await Promise.all([
+      query(
+        `SELECT COUNT(*)::int AS n FROM audit_events
+         WHERE created_at >= $1 AND event_type ILIKE ANY(ARRAY['%AUTH_FAIL%','%INVALID_HMAC%','%UNAUTHORIZED%'])`,
+        [since24h]
+      ),
+      query(
+        `SELECT COUNT(*)::int AS n FROM audit_events
+         WHERE created_at >= $1 AND event_type ILIKE ANY(ARRAY['%WEBHOOK_BLOCKED%','%SSRF%'])`,
+        [since24h]
+      ),
+      query(
+        `SELECT COUNT(*)::int AS n FROM audit_events
+         WHERE created_at >= $1 AND event_type IN ('SERVICE_PAUSED','circuit_breaker_triggered')`,
+        [since24h]
+      ),
+      query(
+        `SELECT COUNT(*)::int AS n FROM executions
+         WHERE created_at >= $1 AND idempotency_key IS NOT NULL AND status IN ('success','failed')`,
+        [since24h]
+      ),
+      query(
+        `SELECT COUNT(*)::int AS n FROM executions
+         WHERE created_at >= $1 AND status = 'failed'
+           AND callback_received_at IS NULL
+           AND callback_token_expires_at IS NOT NULL AND callback_token_expires_at < NOW()`,
+        [since24h]
+      ),
+    ]);
+    const data = {
+      failed_auth_24h:             { count: authFailRes.rows[0]?.n ?? 0,    link: '/staff/audit?event_type=AUTH_FAILURE' },
+      rate_limit_violations_24h:   { count: 0,                              link: '/staff/rate-limits?status=throttled', note: 'In-memory/Redis only' },
+      blocked_webhooks_24h:        { count: webhookBlockRes.rows[0]?.n ?? 0, link: '/staff/webhook-security' },
+      circuit_breakers_triggered:  { count: cbRes.rows[0]?.n ?? 0,          link: '/staff/circuit-breakers' },
+      idempotency_replays_prevented: { count: replayRes.rows[0]?.n ?? 0,    link: '/staff/executions' },
+      callback_rejections:         { count: cbRejectRes.rows[0]?.n ?? 0,    link: '/staff/callbacks?token_status=Expired' },
+    };
+    return reply.send({ ok: true, data });
+  });
+
+  /** GET /staff/api/security/rate-limits — estado do rate-limit (Redis/memory; sem persistência) */
+  fastify.get('/api/security/rate-limits', {
+    schema: { tags: ['Staff'], description: 'Rate limit state (Redis/in-memory; not persisted to DB).' },
+  }, async (_request, reply) => {
+    return reply.send({ ok: true, data: { rows: [], total: 0, note: 'Rate limit state is in-memory/Redis and not persisted.' } });
+  });
+  fastify.post('/api/security/rate-limits/reset', {
+    schema: { tags: ['Staff'] },
+  }, async (_request, reply) => reply.send({ ok: true }));
+  fastify.post('/api/security/rate-limits/block', {
+    schema: { tags: ['Staff'] },
+  }, async (_request, reply) => reply.send({ ok: true }));
+
+  /** GET /staff/api/services/webhook-security — serviços com status do webhook e falhas consecutivas */
+  fastify.get('/api/services/webhook-security', {
+    schema: { tags: ['Staff'], description: 'Services with webhook health (circuit breaker status).' },
+  }, async (request, reply) => {
+    const { status, owner_agent_id, limit: rawLimit, offset: rawOffset } = request.query || {};
+    const limit = Math.min(Math.max(Number(rawLimit) || 50, 1), 200);
+    const offset = Math.max(Number(rawOffset) || 0, 0);
+    const where = ['1=1'];
+    const params = [];
+    let idx = 1;
+    if (status) { where.push(`s.status = $${idx++}`); params.push(status); }
+    if (owner_agent_id) { where.push(`s.owner_agent_id = $${idx++}`); params.push(owner_agent_id); }
+    const whereClause = where.join(' AND ');
+    const countRes = await query(`SELECT COUNT(*)::int AS total FROM services s WHERE ${whereClause}`, params);
+    const total = countRes.rows[0]?.total ?? 0;
+    params.push(limit, offset);
+    const res = await query(
+      `SELECT s.id AS service_id, s.name AS service_name, s.owner_agent_id, s.webhook_url,
+              s.status,
+              CASE WHEN s.status = 'paused' THEN 'Open' ELSE 'Closed' END AS circuit_breaker_state,
+              s.updated_at AS last_attempt
+       FROM services s
+       WHERE ${whereClause}
+       ORDER BY s.updated_at DESC NULLS LAST
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      params
+    );
+    const response = { ok: true, data: { rows: res.rows, total } };
+    reply.raw.writeHead(200, { 'Content-Type': 'application/json' });
+    reply.raw.end(JSON.stringify(response));
+    return;
+  });
+
+  /** GET /staff/api/services/circuit-breakers — serviços com estado do circuit breaker */
+  fastify.get('/api/services/circuit-breakers', {
+    schema: { tags: ['Staff'], description: 'Services with circuit breaker state (paused = Open).' },
+  }, async (_request, reply) => {
+    const res = await query(
+      `SELECT s.id AS service_id, s.name AS service_name,
+              CASE WHEN s.status = 'paused' THEN 'Open' ELSE 'Closed' END AS breaker_state,
+              s.status,
+              s.updated_at AS last_updated
+       FROM services s
+       ORDER BY CASE WHEN s.status = 'paused' THEN 0 ELSE 1 END, s.updated_at DESC NULLS LAST
+       LIMIT 200`,
+      []
+    );
+    return reply.send({ ok: true, data: { rows: res.rows, total: res.rows.length } });
+  });
+
+  /** POST /staff/api/services/:id/circuit-breaker/close — força fechamento (resume serviço) */
+  fastify.post('/api/services/:id/circuit-breaker/close', {
+    schema: { tags: ['Staff'], params: { type: 'object', properties: { id: { type: 'string' } } } },
+  }, async (request, reply) => {
+    const svc = await servicesDb.getById(request.params.id);
+    if (!svc) return reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Service not found' });
+    if (svc.status !== 'paused') return reply.send({ ok: true, data: svc });
+    await servicesDb.update(svc.id, { status: 'active' });
+    await recordAuditEvent({
+      event_type: 'CIRCUIT_BREAKER_CLOSED',
+      actor_type: 'admin',
+      target_type: 'service',
+      target_id: svc.id,
+      request_id: request.requestId,
+    });
+    const updated = await servicesDb.getById(svc.id);
+    return reply.send({ ok: true, data: updated });
+  });
+
+  /** GET /staff/api/requests — log de requests (sem tabela persistida; retorna vazio) */
+  fastify.get('/api/requests', {
+    schema: { tags: ['Staff'], description: 'Request log (not persisted to DB; returns empty).' },
+  }, async (_request, reply) => {
+    return reply.send({ ok: true, data: { rows: [], total: 0, note: 'Request log is not persisted to DB.' } });
+  });
+  fastify.get('/api/requests/:id', {
+    schema: { tags: ['Staff'] },
+  }, async (_request, reply) => reply.code(404).send({ ok: false, code: 'NOT_FOUND', message: 'Request not found' }));
+
+  /** GET /staff/api/metrics — métricas operacionais com dados reais do banco */
+  fastify.get('/api/metrics', {
+    schema: { tags: ['Staff'], description: 'Operational metrics derived from DB.' },
+  }, async (_request, reply) => {
+    const since1h = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const [execStats, latencyStats, cbRate] = await Promise.all([
+      query(
+        `SELECT status, COUNT(*)::int AS cnt FROM executions WHERE created_at >= $1 GROUP BY status`,
+        [since1h]
+      ),
+      query(
+        `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY latency_ms) AS p50,
+                PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95
+         FROM executions WHERE latency_ms IS NOT NULL AND created_at >= $1`,
+        [since1h]
+      ),
+      query(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE callback_received_at IS NOT NULL)::int AS received
+         FROM executions WHERE created_at >= $1 AND status IN ('success','failed')`,
+        [since1h]
+      ),
+    ]);
+    const byStatus = {};
+    (execStats.rows || []).forEach((r) => { byStatus[r.status] = r.cnt; });
+    const success = byStatus.success || 0;
+    const failed = byStatus.failed || 0;
+    const cbTotal = cbRate.rows[0]?.total ?? 0;
+    const cbReceived = cbRate.rows[0]?.received ?? 0;
+    const data = {
+      execution_success_vs_failure: { success, failed },
+      webhook_latency: {
+        p50_ms: Math.round(Number(latencyStats.rows[0]?.p50) || 0),
+        p95_ms: Math.round(Number(latencyStats.rows[0]?.p95) || 0),
+      },
+      callback_success_rate: cbTotal > 0 ? Number((cbReceived / cbTotal).toFixed(4)) : null,
+      executions_by_status_1h: byStatus,
+    };
+    return reply.send({ ok: true, data });
+  });
+
+  /** GET /staff/api/health — health check detalhado */
+  fastify.get('/api/health', {
+    schema: { tags: ['Staff'], description: 'Detailed health check.' },
+  }, async (_request, reply) => {
+    let dbStatus = 'Unknown';
+    let dbLatencyMs = null;
+    try {
+      const t0 = Date.now();
+      await query('SELECT 1', []);
+      dbLatencyMs = Date.now() - t0;
+      dbStatus = 'Connected';
+    } catch (_) {
+      dbStatus = 'Error';
+    }
+    const { getRedis } = require('../lib/redis');
+    let redisStatus = 'Disabled';
+    try {
+      const redis = await getRedis();
+      if (redis) {
+        await redis.ping();
+        redisStatus = 'Connected';
+      }
+    } catch (_) {
+      redisStatus = 'Error';
+    }
+    const data = {
+      api_process: 'Healthy',
+      database: dbStatus,
+      database_latency_ms: dbLatencyMs,
+      redis: redisStatus,
+      uptime_seconds: Math.floor(process.uptime()),
+      last_readiness_check: new Date().toISOString(),
+    };
+    return reply.send({ ok: true, data });
+  });
+
+  /** GET /staff/api/data-retention — configuração de retenção */
+  fastify.get('/api/data-retention', {
+    schema: { tags: ['Staff'], description: 'Data retention configuration.' },
+  }, async (_request, reply) => {
+    const data = {
+      execution_retention_days: config.executionRetentionDays || 0,
+      audit_log_retention_days: config.auditRetentionDays || 0,
+      note: 'Set EXECUTION_RETENTION_DAYS and AUDIT_RETENTION_DAYS in .env to enable automatic cleanup.',
+    };
+    return reply.send({ ok: true, data });
+  });
+
+  fastify.patch('/api/data-retention', {
+    schema: { tags: ['Staff'], body: { type: 'object' } },
+  }, async (_request, reply) => reply.send({ ok: true, data: {}, message: 'Retention settings are configured via environment variables.' }));
+
+  /** GET /staff/api/data-retention/preview — quantos registros seriam removidos */
+  fastify.get('/api/data-retention/preview', {
+    schema: { tags: ['Staff'], description: 'Preview: count rows that would be deleted based on retention settings.' },
+  }, async (_request, reply) => {
+    const execDays = config.executionRetentionDays || 0;
+    const auditDays = config.auditRetentionDays || 0;
+    let execToDelete = 0;
+    let auditToDelete = 0;
+    if (execDays > 0) {
+      const r = await query(
+        `SELECT COUNT(*)::int AS n FROM executions WHERE created_at < NOW() - ($1 || ' days')::interval`,
+        [execDays]
+      ).catch(() => ({ rows: [{ n: 0 }] }));
+      execToDelete = r.rows[0]?.n ?? 0;
+    }
+    if (auditDays > 0) {
+      const r = await query(
+        `SELECT COUNT(*)::int AS n FROM audit_events WHERE created_at < NOW() - ($1 || ' days')::interval`,
+        [auditDays]
+      ).catch(() => ({ rows: [{ n: 0 }] }));
+      auditToDelete = r.rows[0]?.n ?? 0;
+    }
+    return reply.send({ ok: true, data: { executions_to_delete: execToDelete, audit_events_to_delete: auditToDelete } });
+  });
+
+  /** POST /staff/api/data-retention/run — executa limpeza de retenção */
+  fastify.post('/api/data-retention/run', {
+    schema: { tags: ['Staff'], description: 'Run data retention cleanup.' },
+  }, async (request, reply) => {
+    const execDays = config.executionRetentionDays || 0;
+    const auditDays = config.auditRetentionDays || 0;
+    if (execDays === 0 && auditDays === 0) {
+      return reply.send({ ok: true, data: { executions_deleted: 0, audit_events_deleted: 0 }, message: 'Retention days are 0 — nothing deleted.' });
+    }
+    let execDeleted = 0;
+    let auditDeleted = 0;
+    if (execDays > 0) {
+      const r = await query(
+        `DELETE FROM executions WHERE created_at < NOW() - ($1 || ' days')::interval RETURNING id`,
+        [execDays]
+      ).catch(() => ({ rows: [] }));
+      execDeleted = r.rows.length;
+    }
+    if (auditDays > 0) {
+      const r = await query(
+        `DELETE FROM audit_events WHERE created_at < NOW() - ($1 || ' days')::interval RETURNING id`,
+        [auditDays]
+      ).catch(() => ({ rows: [] }));
+      auditDeleted = r.rows.length;
+    }
+    await recordAuditEvent({
+      event_type: 'DATA_RETENTION_RUN',
+      actor_type: 'admin',
+      target_type: 'system',
+      metadata: { executions_deleted: execDeleted, audit_events_deleted: auditDeleted },
+      request_id: request.requestId,
+    });
+    return reply.send({ ok: true, data: { executions_deleted: execDeleted, audit_events_deleted: auditDeleted } });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   // SPA fallback: register last so /staff/api/* is always matched by API routes above
   const staffUiDist = opts?.staffUiDist;

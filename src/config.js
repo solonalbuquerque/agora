@@ -54,6 +54,42 @@ const config = {
   enableMetrics: process.env.ENABLE_METRICS === 'true',
   executionRetentionDays: Number(process.env.EXECUTION_RETENTION_DAYS) || 0,
   auditRetentionDays: Number(process.env.AUDIT_RETENTION_DAYS) || 0,
+
+  // ── Novo modelo operacional (Pull Worker + Resolver) ──────────────────────
+
+  /**
+   * Habilita o pull worker (modo PULL).
+   * Instâncias sem endpoint público (NAT/CGNAT) devem definir como true.
+   */
+  instanceEnablePullWorker: process.env.INSTANCE_ENABLE_PULL_WORKER === 'true',
+
+  /**
+   * Máximo de jobs executados simultaneamente pelo pull worker.
+   */
+  execPullConcurrency: Number(process.env.EXEC_PULL_CONCURRENCY) || 3,
+
+  /**
+   * Intervalo em ms entre polls do pull worker.
+   */
+  execPullPollMs: Number(process.env.EXEC_PULL_POLL_MS) || 5000,
+
+  /**
+   * Modo de conectividade reportado ao resolver da CENTRAL.
+   * "pull"   = instância atrás de NAT (não tem inbound)
+   * "direct" = tem endpoint público acessível
+   */
+  agoraConnectivityMode: (process.env.AGORA_CONNECTIVITY_MODE || 'pull').toLowerCase(),
+
+  /**
+   * Intervalo em ms para envio de heartbeat estendido para a CENTRAL.
+   */
+  centralHeartbeatIntervalMs: Number(process.env.CENTRAL_HEARTBEAT_INTERVAL_MS) || 60000,
+
+  /**
+   * TTL em segundos para cache do resolver (GET /public/resolve).
+   * Após expirar, o próximo resolve vai à CENTRAL.
+   */
+  resolverTtlSeconds: Number(process.env.RESOLVER_TTL_SECONDS) || 60,
 };
 
 module.exports = config;

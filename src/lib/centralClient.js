@@ -441,6 +441,171 @@ async function executeRemoteService(baseUrl, instanceId, instanceToken, opts, re
   return { statusCode: res.status, data };
 }
 
+// ── Helpers para autenticação com instance auth ─────────────────────────────
+
+async function centralPostBodyWithInstanceAuth(baseUrl, instanceId, instanceToken, path, body, requestId = null) {
+  if (!baseUrl || !instanceId || !instanceToken) {
+    throw Object.assign(new Error('Requer baseUrl, instanceId e instanceToken'), { code: 'BAD_REQUEST' });
+  }
+  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Instance-Id': instanceId,
+    'X-Instance-Token': instanceToken,
+  };
+  if (requestId) headers['X-Request-Id'] = requestId;
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body || {}) });
+  } catch (err) {
+    throw Object.assign(new Error(`Central unreachable: ${err.message}`), { code: 'CENTRAL_NETWORK', cause: err });
+  }
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : {}; } catch (_) {
+    throw Object.assign(new Error(`Central retornou JSON inválido (${res.status})`), { code: 'CENTRAL_INVALID_RESPONSE', status: res.status });
+  }
+  if (!res.ok) {
+    const msg = data?.message || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.code = data?.code || 'CENTRAL_ERROR';
+    err.status = res.status;
+    err.details = data;
+    throw err;
+  }
+  return data;
+}
+
+// ── Heartbeat estendido ──────────────────────────────────────────────────────
+
+/**
+ * Envia heartbeat estendido para a CENTRAL (POST /instances/me/heartbeat).
+ * Reporta connectivity_mode, public_endpoints e capabilities.
+ * @param {string} baseUrl
+ * @param {string} instanceId
+ * @param {string} instanceToken
+ * @param {{ connectivity_mode?: string, public_endpoints?: object[], capabilities?: object }} data
+ * @param {string} [requestId]
+ */
+async function heartbeatWithMeta(baseUrl, instanceId, instanceToken, data = {}, requestId = null) {
+  return centralPostBodyWithInstanceAuth(baseUrl, instanceId, instanceToken, '/instances/me/heartbeat', data, requestId);
+}
+
+// ── Job Queue (Pull Mode) ────────────────────────────────────────────────────
+
+/**
+ * Lista execute_jobs PENDING para esta instância (GET /instances/me/jobs).
+ * @param {string} baseUrl
+ * @param {string} instanceId
+ * @param {string} instanceToken
+ * @param {{ status?: string, limit?: number }} [opts]
+ * @param {string} [requestId]
+ */
+async function getJobs(baseUrl, instanceId, instanceToken, opts = {}, requestId = null) {
+  const qs = new URLSearchParams();
+  if (opts.status) qs.set('status', opts.status);
+  if (opts.limit) qs.set('limit', String(opts.limit));
+  const path = `/instances/me/jobs?${qs.toString()}`;
+  return centralGetWithInstanceAuth(baseUrl, instanceId, instanceToken, path, requestId);
+}
+
+/**
+ * Reivindica um job (POST /instances/me/jobs/:id/claim). Idempotente.
+ * @returns {Promise<object|null>} job reivindicado ou null
+ */
+async function claimJob(baseUrl, instanceId, instanceToken, jobId, requestId = null) {
+  const path = `/instances/me/jobs/${encodeURIComponent(jobId)}/claim`;
+  try {
+    const data = await centralPostBodyWithInstanceAuth(baseUrl, instanceId, instanceToken, path, {}, requestId);
+    return data?.job || data || null;
+  } catch (err) {
+    if (err.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * Reporta conclusão de um job (POST /instances/me/jobs/:id/complete).
+ * @param {{ result?: object, status?: string, status_code?: number, metrics?: object }} data
+ */
+async function completeJob(baseUrl, instanceId, instanceToken, jobId, data = {}, requestId = null) {
+  const path = `/instances/me/jobs/${encodeURIComponent(jobId)}/complete`;
+  return centralPostBodyWithInstanceAuth(baseUrl, instanceId, instanceToken, path, data, requestId);
+}
+
+/**
+ * Reporta falha de um job (POST /instances/me/jobs/:id/fail).
+ * @param {{ error?: object, retryable?: boolean }} data
+ */
+async function failJob(baseUrl, instanceId, instanceToken, jobId, data = {}, requestId = null) {
+  const path = `/instances/me/jobs/${encodeURIComponent(jobId)}/fail`;
+  return centralPostBodyWithInstanceAuth(baseUrl, instanceId, instanceToken, path, data, requestId);
+}
+
+// ── Service Resolver com cache TTL ──────────────────────────────────────────
+
+/** Cache em memória: chave → { data, expiresAt } */
+const resolveCache = new Map();
+
+/**
+ * Resolve o modo de execução para um serviceRef (GET /public/resolve).
+ * Cacheia a resposta por ttlSeconds reportado pela CENTRAL.
+ *
+ * @param {string} baseUrl
+ * @param {string} serviceRef – "my-service" ou "instance:my-service"
+ * @param {{ preferredRegion?: string, bypassCache?: boolean }} [opts]
+ * @param {string} [requestId]
+ * @returns {Promise<{ mode: 'direct'|'pull', endpoints: object[], ttlSeconds: number, providerInstanceId: string, health: string }>}
+ */
+async function resolveService(baseUrl, serviceRef, opts = {}, requestId = null) {
+  if (!baseUrl || !serviceRef) {
+    throw Object.assign(new Error('resolveService requer baseUrl e serviceRef'), { code: 'BAD_REQUEST' });
+  }
+
+  const cacheKey = `${baseUrl}::${serviceRef}`;
+  const now = Date.now();
+
+  if (!opts.bypassCache) {
+    const cached = resolveCache.get(cacheKey);
+    if (cached && now < cached.expiresAt) {
+      return cached.data;
+    }
+  }
+
+  const qs = new URLSearchParams({ serviceRef });
+  if (opts.preferredRegion) qs.set('preferredRegion', opts.preferredRegion);
+  const url = `${baseUrl.replace(/\/$/, '')}/public/resolve?${qs.toString()}`;
+
+  let res;
+  try {
+    res = await fetch(url, { method: 'GET' });
+  } catch (err) {
+    throw Object.assign(new Error(`Central unreachable: ${err.message}`), { code: 'CENTRAL_NETWORK', cause: err });
+  }
+  const text = await res.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch (_) {
+    throw Object.assign(new Error(`Central retornou JSON inválido (${res.status})`), { code: 'CENTRAL_INVALID_RESPONSE', status: res.status });
+  }
+  if (!res.ok) {
+    const msg = data?.message || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.code = data?.code || 'CENTRAL_ERROR';
+    err.status = res.status;
+    err.details = data;
+    throw err;
+  }
+
+  const ttlMs = (Number(data.ttlSeconds) || 60) * 1000;
+  resolveCache.set(cacheKey, { data, expiresAt: now + ttlMs });
+  return data;
+}
+
+/** Invalida o cache do resolver para um serviceRef (usar após falha em chamada direta). */
+function invalidateResolveCache(baseUrl, serviceRef) {
+  resolveCache.delete(`${baseUrl}::${serviceRef}`);
+}
+
 module.exports = {
   registerCentralPreregister,
   registerCentral,
@@ -453,4 +618,12 @@ module.exports = {
   postExportedServices,
   getInstanceByIdOrSlug,
   executeRemoteService,
+  // Novo modelo operacional
+  heartbeatWithMeta,
+  getJobs,
+  claimJob,
+  completeJob,
+  failJob,
+  resolveService,
+  invalidateResolveCache,
 };

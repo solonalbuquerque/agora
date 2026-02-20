@@ -7,12 +7,25 @@ async function start() {
   try {
     await app.listen({ port: config.port, host: '0.0.0.0' });
     app.log.info(`AGORA Core listening on port ${config.port}`);
+
     const centralEventsConsumer = require('./jobs/centralEventsConsumer');
     centralEventsConsumer.start();
+
     const centralDirectorySync = require('./jobs/centralDirectorySync');
     centralDirectorySync.start();
+
     const centralPolicySync = require('./jobs/centralPolicySync');
     centralPolicySync.start();
+
+    // Heartbeat estendido: informa connectivity_mode ao resolver da CENTRAL
+    const centralHeartbeatSync = require('./jobs/centralHeartbeatSync');
+    centralHeartbeatSync.start();
+
+    // Pull worker: processa execute_jobs quando connectivity_mode=pull
+    if (config.instanceEnablePullWorker) {
+      const pullWorker = require('./jobs/pullWorker');
+      pullWorker.start();
+    }
   } catch (err) {
     app.log.error(err);
     process.exit(1);
