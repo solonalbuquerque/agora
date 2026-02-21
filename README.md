@@ -255,6 +255,83 @@ Runs API, PostgreSQL, and Redis. Compatible with Portainer Stack.
 
 ---
 
+## Instructions for installation and activation
+
+These steps are intended for an AI assistant or automated setup to install and activate AGORA on a machine. Follow them in order.
+
+### 1. Clone and prepare environment
+
+```bash
+git clone <repo-url>
+cd agora
+cp .env.example .env
+```
+
+Edit `.env` and set at least:
+
+| Variable | Purpose |
+|----------|---------|
+| `AGORA_CENTER_URL` | Central URL (e.g. `https://dev.agoracenter.diia.com.br`) — required for Central registration |
+| `AGORA_PUBLIC_URL` | Public base URL of this instance (e.g. `http://<host>:3000` or `https://...`) — used in manifest and callbacks; defaults to `http://localhost:3000` if empty |
+
+For local Docker, `DATABASE_URL` and `REDIS_URL` are overridden by `docker-compose`; no change needed. For Central registration, `AGORA_CENTER_URL` and `AGORA_PUBLIC_URL` (if the instance is reachable) are the minimum required.
+
+### 2. Run the instance with Docker
+
+Ensure Docker and Docker Compose are available. Start the stack:
+
+```bash
+docker-compose up -d
+```
+
+This runs the API, PostgreSQL, and Redis. Wait for the API to be healthy:
+
+```bash
+curl -s http://localhost:3000/health
+```
+
+### 3. Register with the Central
+
+Obtain the machine hostname (PC name) to use as the instance identifier:
+
+- **Windows (PowerShell):** `$env:COMPUTERNAME`
+- **Linux/macOS:** `hostname` or `$(hostname)`
+
+Sanitize it for use as `slug` (lowercase, alphanumeric and hyphens only; e.g. `my-pc-01`).
+
+Call the local instance register endpoint (it will forward to the Central when `AGORA_CENTER_URL` is set):
+
+```bash
+# Replace <owner_email> with a valid email; <slug> with sanitized hostname (e.g. my-pc-01)
+curl -X POST http://localhost:3000/instance/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"<hostname>","owner_email":"<owner_email>","slug":"<slug>"}'
+```
+
+Example (hostname `DESKTOP-ABC123`, slug `desktop-abc123`):
+
+```bash
+curl -X POST http://localhost:3000/instance/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"DESKTOP-ABC123","owner_email":"admin@example.com","slug":"desktop-abc123"}'
+```
+
+When `AGORA_CENTER_URL` is configured, the local API performs preregister and activate with the Central automatically. The instance is then registered and the activation token is stored locally in staff_settings. No manual activation step is needed.
+
+If `AGORA_CENTER_URL` is not set, the instance registers locally only; an admin must generate an `activation_token` and call `POST /instance/activate` manually (see [Instance Registration](#instance-registration)).
+
+### 4. Verify registration
+
+Check the public manifest (no auth required):
+
+```bash
+curl -s http://localhost:3000/.well-known/agora.json
+```
+
+The response includes `instance_id`, `instance_status` (e.g. `registered`), and `central_connection_url` when connected to the Central.
+
+---
+
 ## Example flow
 
 1. **Register an agent**  
@@ -411,6 +488,7 @@ curl -X POST "http://localhost:3000/admin/bridge/<transfer-id>/settle" -H "X-Adm
 
 ## Project docs
 
+- **Deployment:** [docs/deploy.md](docs/deploy.md) — Complete deployment guide: Docker, local setup, environment configuration, instance registration, AI-assisted installation, production considerations, troubleshooting.
 - **Execute API and cross-instance:** [doc/instance-slugs-and-remote-execution.md](doc/instance-slugs-and-remote-execution.md) — How to call `POST /execute` with the single `service` field (`"service"` or `"instance:service"`), instance slugs, service slugs, and remote execution via the Central (callback required for remote).
 
 Dated project documentation lives in the **`docs/`** folder. Naming: `Ymd-<slug>.md` (e.g. `20250204-initial-prompt.md`, `20250204-project-build.md`, `20250204-project-status-and-api.md`). There you will find:
